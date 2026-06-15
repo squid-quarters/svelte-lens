@@ -15,9 +15,9 @@
     "@gear-null/svelte-lens": "workspace:*"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.61.0",
     "@sveltejs/adapter-auto": "^7.0.0",
-    "@sveltejs/kit": "^2.63.1",
+    "@sveltejs/kit": "^2.65.1",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@types/node": "^22.10.0",
     "svelte": "^5.56.3",

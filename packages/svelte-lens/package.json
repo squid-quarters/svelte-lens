@@ -61,7 +61,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "commander": "^14.0.0",
     "element-source": "^0.0.5",
-    "package-manager-detector": "^1.0.0",
+    "package-manager-detector": "^1.7.0",
     "picocolors": "^1.1.0",
     "prompts": "^2.4.2",
     "zod": "^3.23.0"

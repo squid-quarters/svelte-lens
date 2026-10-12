@@ -58,17 +58,24 @@ const createNoopApi = (): SvelteLensAPI => ({
   dispose: noop,
 });
 
-// Match the physical key too: in hold mode the activation chord's Option
-// stays held, and macOS reports Cmd+Option+C as key "ç".
-const isCopyKeyCombo = (event: KeyboardEvent): boolean =>
-  (event.code === "KeyC" || event.key?.toLowerCase() === "c") && (event.metaKey || event.ctrlKey);
+// Match the typed letter (case-insensitive, for Caps Lock). Fall back to the
+// physical key (code) only when key is not a plain letter, e.g. macOS
+// Option-modified output like "ç"/"©" or dead keys. Matching code
+// unconditionally would hijack other letters on non-QWERTY layouts (Dvorak
+// Cmd+Option+I sends code "KeyG").
+const matchesLetter = (event: KeyboardEvent, letter: string): boolean => {
+  const key = event.key?.toLowerCase() ?? "";
+  if (key === letter) return true;
+  return !/^[a-z]$/.test(key) && event.code === `Key${letter.toUpperCase()}`;
+};
 
-// Prefer the physical key (code) so Caps Lock and Option-modified layouts
-// still match; fall back to key for synthetic events without a code.
+// In hold mode the activation chord's Option stays held, and macOS reports
+// Cmd+Option+C as key "ç".
+const isCopyKeyCombo = (event: KeyboardEvent): boolean =>
+  matchesLetter(event, "c") && (event.metaKey || event.ctrlKey);
+
 const isDefaultActivationCombo = (event: KeyboardEvent): boolean =>
-  (event.code === "KeyG" || event.key?.toLowerCase() === "g") &&
-  (event.metaKey || event.ctrlKey) &&
-  event.altKey;
+  matchesLetter(event, "g") && (event.metaKey || event.ctrlKey) && event.altKey;
 
 type ModifierKey = "Meta" | "Control" | "Alt" | "Shift";
 const MODIFIER_KEYS = new Set<string>(["Meta", "Control", "Alt", "Shift"]);

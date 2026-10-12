@@ -245,6 +245,25 @@ describe("core/index.svelte.ts — interaction", () => {
       expect(lens.isActive()).toBe(true);
     });
 
+    it("does not match another letter at the G position (Dvorak Cmd+Option+I)", async () => {
+      const lens = await setup();
+      const ev = keydown({ key: "i", code: "KeyG", metaKey: true, altKey: true });
+      expect(lens.isActive()).toBe(false);
+      expect(ev.defaultPrevented).toBe(false);
+    });
+
+    it("does not hijack another letter at the C position as copy (Dvorak Cmd+J)", async () => {
+      const lens = await setup();
+      elementAt = makeEl("a");
+      pointerMove(1, 1);
+      keydown({ key: "g", code: "KeyG", metaKey: true, altKey: true });
+      expect(lens.isActive()).toBe(true);
+      const ev = keydown({ key: "j", code: "KeyC", metaKey: true });
+      await wait(10);
+      expect(ev.defaultPrevented).toBe(false);
+      expect(writeText).not.toHaveBeenCalled();
+    });
+
     it("ignores key repeat", async () => {
       const lens = await setup();
       keydown({ key: "g", code: "KeyG", metaKey: true, altKey: true });

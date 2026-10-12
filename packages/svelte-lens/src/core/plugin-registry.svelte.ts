@@ -130,7 +130,13 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
   const unregister = (name: string): void => {
     const registered = plugins.get(name);
     if (!registered) return;
-    registered.config.cleanup?.();
+    // Isolated so a throwing cleanup still unregisters the plugin and cannot
+    // abort the caller's teardown (e.g. dispose()).
+    try {
+      registered.config.cleanup?.();
+    } catch (error) {
+      reportHookError(name, "cleanup", error);
+    }
     plugins.delete(name);
     recompute();
   };

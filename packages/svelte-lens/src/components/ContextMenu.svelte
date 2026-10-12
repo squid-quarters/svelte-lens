@@ -104,6 +104,7 @@
     width: 100%;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     padding: 6px 10px;
     border-radius: 4px;
     background: transparent;
@@ -112,6 +113,9 @@
     font: inherit;
     cursor: pointer;
     text-align: left;
+    /* Keeps min-content equal to max-content so the menu measures at its
+       natural width even when first laid out at the unclamped click point. */
+    white-space: nowrap;
   }
   .lens-menu-item:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.08);

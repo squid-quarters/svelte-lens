@@ -86,6 +86,27 @@ describe("core/index.svelte.ts — interaction", () => {
       expect(writeText.mock.calls[0]![0]).toContain('id="target"');
       expect(getShadowRoot().querySelector('[role="menu"]')).toBe(null);
     });
+
+    it("keeps the selection and 'Copied' label on the copied element", async () => {
+      const lens = await setup();
+      const icon = makeEl("icon");
+      const neighbour = makeEl("neighbour");
+      lens.activate();
+      await openMenu(icon);
+      // The page element under the Copy menu item.
+      elementAt = neighbour;
+      pointerMove(40, 40);
+
+      const copyItem = Array.from(getShadowRoot().querySelectorAll("button")).find(
+        (b) => b.textContent?.includes("Copy") && b.getAttribute("role") === "menuitem",
+      );
+      copyItem!.click();
+      await wait(10);
+
+      expect(writeText.mock.calls[0]![0]).toContain('id="icon"');
+      expect(lens.getState().targetElement).toBe(icon);
+      expect(getShadowRoot().querySelector(".lens-label")?.textContent).toContain("Copied");
+    });
   });
 
   describe("element detection (#1)", () => {

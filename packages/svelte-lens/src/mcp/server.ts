@@ -114,13 +114,15 @@ export const sweepIdleSessions = (now = Date.now()): void => {
 const isLoopbackOrigin = (origin: string | undefined): boolean => {
   if (!origin) return true; // non-browser clients have no Origin header
   try {
-    const { hostname } = new URL(origin);
+    // WHATWG URL keeps the brackets on IPv6 hostnames ("[::1]").
+    const hostname = new URL(origin).hostname.replace(/^\[|\]$/g, "");
     if (hostname === "localhost") return true;
     // IPv4 loopback: full 127.0.0.0/8 range (RFC 1122).
     if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
-    // IPv6 loopback: ::1 and IPv4-mapped IPv6 loopback (::ffff:127.x.x.x).
+    // IPv6 loopback: ::1 and IPv4-mapped IPv6 loopback, which URL normalizes
+    // from ::ffff:127.x.x.x to hex (::ffff:7fxx:xxxx).
     if (hostname === "::1") return true;
-    if (/^::ffff:127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+    if (/^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(hostname)) return true;
     return false;
   } catch {
     return false;

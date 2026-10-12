@@ -387,7 +387,9 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       lineNumber: source?.lineNumber ?? undefined,
       componentName: source?.componentName ?? undefined,
       tagName: getTagName(element),
-      hideContextMenu: () => dismissContextMenu(),
+      // An action keeps the selection on its element so feedback such as
+      // "Copied" lands on it; the next pointer move re-detects.
+      hideContextMenu: () => closeContextMenu(),
       cleanup: () => deactivate(),
     };
     renderState.contextMenuPosition = position;
@@ -396,9 +398,13 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     pluginRegistry.hooks.onContextMenu(element, position);
   };
 
-  const dismissContextMenu = (): void => {
+  const closeContextMenu = (): void => {
     renderState.contextMenuPosition = null;
     renderState.actionContext = null;
+  };
+
+  const dismissContextMenu = (): void => {
+    closeContextMenu();
     // Hover was frozen while the menu was open; catch up with the pointer.
     if (store.state.isActive) detectElement(store.state.pointer.x, store.state.pointer.y);
   };

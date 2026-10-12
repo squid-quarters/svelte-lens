@@ -131,6 +131,33 @@ describe("MCP HTTP server", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("accepts POST /context from loopback origins, including IPv6, and rejects others", async () => {
+    const { createHttpServer } = await loadServer();
+    server = createHttpServer(0);
+    const port = await listen(server);
+    const post = (origin: string) =>
+      send(port, "POST", "/context", JSON.stringify({ content: ["x"] }), {
+        "Content-Type": "application/json",
+        Origin: origin,
+      });
+
+    for (const origin of [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://[::1]:5173",
+      "http://[::ffff:127.0.0.1]:5173",
+    ]) {
+      expect((await post(origin)).status, origin).toBe(200);
+    }
+    for (const origin of [
+      "http://example.com",
+      "http://[::2]:5173",
+      "http://[::ffff:10.0.0.1]:5173",
+    ]) {
+      expect((await post(origin)).status, origin).toBe(403);
+    }
+  });
 });
 
 describe("startMcpServer --stdio", () => {

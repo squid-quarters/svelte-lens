@@ -132,8 +132,7 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
   ): void => {
     for (const { config } of plugins.values()) {
       const hook = config.hooks?.[hookName] as
-        | ((...hookArgs: Parameters<NonNullable<PluginHooks[K]>>) => void)
-        | undefined;
+        ((...hookArgs: Parameters<NonNullable<PluginHooks[K]>>) => void) | undefined;
       hook?.(...args);
     }
   };
@@ -145,8 +144,7 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     let intercepted = false;
     for (const { config } of plugins.values()) {
       const hook = config.hooks?.[hookName] as
-        | ((...hookArgs: Parameters<NonNullable<PluginHooks[K]>>) => boolean | void)
-        | undefined;
+        ((...hookArgs: Parameters<NonNullable<PluginHooks[K]>>) => boolean | void) | undefined;
       if (hook?.(...args) === true) intercepted = true;
     }
     return intercepted;

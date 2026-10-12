@@ -65,10 +65,12 @@ const LENS_SCRIPT_IMPORTS = [
 // onMount in a `<script module>` / `context="module"` block runs outside
 // component init and throws, so only the instance script may be merged into.
 const MODULE_ATTR_RE = /\b(?:module\b|context\s*=\s*["']module["'])/;
-const SCRIPT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script>/g;
-// Comments and <svelte:head> hold markup scripts (JSON-LD, analytics), never
-// the component's own scripts.
-const NON_COMPONENT_SCRIPT_REGION_RE = /<!--[\s\S]*?-->|<svelte:head\b[\s\S]*?<\/svelte:head>/g;
+// Scanned left to right, so whichever region opens first swallows the others:
+// comments and <svelte:head> hold markup scripts (JSON-LD, analytics), never
+// the component's own scripts, while a `<!--` or `<svelte:head>` mentioned
+// inside a <script>/<style> body is just code.
+const TOP_LEVEL_REGION_RE =
+  /<!--[\s\S]*?-->|<svelte:head\b[\s\S]*?<\/svelte:head>|<style\b[^>]*>[\s\S]*?<\/style>|<script\b([^>]*)>([\s\S]*?)<\/script>/g;
 
 interface ScriptBlock {
   start: number;
@@ -87,11 +89,9 @@ const isComponentScriptAttrs = (attrs: string): boolean => {
 const findComponentScripts = (
   content: string,
 ): { instance?: ScriptBlock; module?: ScriptBlock } => {
-  // Blank out non-component regions with same-length padding so match offsets
-  // still index into the original content.
-  const masked = content.replace(NON_COMPONENT_SCRIPT_REGION_RE, (m) => " ".repeat(m.length));
   const found: { instance?: ScriptBlock; module?: ScriptBlock } = {};
-  for (const match of masked.matchAll(SCRIPT_RE)) {
+  for (const match of content.matchAll(TOP_LEVEL_REGION_RE)) {
+    if (!match[0].startsWith("<script")) continue;
     const attrs = match[1] ?? "";
     if (!isComponentScriptAttrs(attrs)) continue;
     const start = match.index;

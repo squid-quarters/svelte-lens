@@ -58,10 +58,10 @@ const createNoopApi = (): SvelteLensAPI => ({
   dispose: noop,
 });
 
-const isCopyKeyCombo = (event: KeyboardEvent): boolean => {
-  if (event.key !== "c" && event.key !== "C") return false;
-  return event.metaKey || event.ctrlKey;
-};
+// Match the physical key too: in hold mode the activation chord's Option
+// stays held, and macOS reports Cmd+Option+C as key "ç".
+const isCopyKeyCombo = (event: KeyboardEvent): boolean =>
+  (event.code === "KeyC" || event.key?.toLowerCase() === "c") && (event.metaKey || event.ctrlKey);
 
 // Prefer the physical key (code) so Caps Lock and Option-modified layouts
 // still match; fall back to key for synthetic events without a code.
@@ -360,6 +360,18 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
 
   const onContextMenuEvent = (event: MouseEvent): void => {
     if (!store.state.isActive) return;
+    // A right-click on the open menu itself keeps the menu as it is.
+    if (
+      event
+        .composedPath()
+        .some((node) => node instanceof Element && node.classList.contains("lens-menu"))
+    ) {
+      event.preventDefault();
+      return;
+    }
+    // Hover is frozen while a menu is open, so target what is under the
+    // right-click rather than the element the previous menu was opened for.
+    detectElement(event.clientX, event.clientY);
     if (!store.state.detectedElement) return;
     event.preventDefault();
     event.stopPropagation();
@@ -375,10 +387,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       lineNumber: source?.lineNumber ?? undefined,
       componentName: source?.componentName ?? undefined,
       tagName: getTagName(element),
-      hideContextMenu: () => {
-        renderState.contextMenuPosition = null;
-        renderState.actionContext = null;
-      },
+      hideContextMenu: () => dismissContextMenu(),
       cleanup: () => deactivate(),
     };
     renderState.contextMenuPosition = position;
@@ -390,6 +399,8 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   const dismissContextMenu = (): void => {
     renderState.contextMenuPosition = null;
     renderState.actionContext = null;
+    // Hover was frozen while the menu was open; catch up with the pointer.
+    if (store.state.isActive) detectElement(store.state.pointer.x, store.state.pointer.y);
   };
 
   const activate = (): void => {

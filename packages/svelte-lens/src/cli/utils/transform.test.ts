@@ -172,6 +172,31 @@ ${instanceTag}
     expect(scripts(instance)[0]).toContain("let x = 1;");
   });
 
+  it.each([
+    ["a <svelte:head> mentioned in a script comment", "  // title is set in <svelte:head> below"],
+    ["a <!-- inside a script string", '  const isComment = (h: string) => h.startsWith("<!--");'],
+  ])("merges into the instance script despite %s", (_, line) => {
+    const input = `<script lang="ts">
+${line}
+  let { children } = $props();
+</script>
+<!-- nav -->
+<svelte:head><title>x</title></svelte:head>
+{@render children()}
+`;
+    const out = mergeLayout(input);
+    expect(out.startsWith('<script lang="ts">\n')).toBe(true);
+    const all = scripts(out);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toContain(line);
+    expectWired(all[0] ?? "");
+    expect(
+      out.endsWith(
+        "<!-- nav -->\n<svelte:head><title>x</title></svelte:head>\n{@render children()}\n",
+      ),
+    ).toBe(true);
+  });
+
   it("rewrites a deprecated unscoped svelte-lens import instead of treating it as wired", () => {
     const legacy = `<script>
   import { onMount } from "svelte";

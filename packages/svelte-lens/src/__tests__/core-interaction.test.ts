@@ -272,6 +272,21 @@ describe("core/index.svelte.ts — interaction", () => {
       expect(lens.isActive()).toBe(false);
     });
 
+    it("hold mode copies with Cmd+Option+C while the chord is held (macOS key 'ç')", async () => {
+      const lens = await setup({ activationMode: "hold", keyHoldDuration: 30 });
+      elementAt = makeEl("a");
+      pointerMove(1, 1);
+      keydown({ key: "©", code: "KeyG", metaKey: true, altKey: true });
+      await wait(60);
+      expect(lens.isActive()).toBe(true);
+      const copy = keydown({ key: "ç", code: "KeyC", metaKey: true, altKey: true });
+      await wait(10);
+      expect(copy.defaultPrevented).toBe(true);
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText.mock.calls[0]![0]).toContain('id="a"');
+      expect(lens.isActive()).toBe(true);
+    });
+
     it("hold mode does not activate when released before keyHoldDuration", async () => {
       const lens = await setup({ activationMode: "hold", keyHoldDuration: 50 });
       keydown({ key: "g", code: "KeyG", metaKey: true, altKey: true });
@@ -298,6 +313,71 @@ describe("core/index.svelte.ts — interaction", () => {
       await wait(10);
       expect(writeText).toHaveBeenCalledTimes(1);
       expect(writeText.mock.calls[0]![0]).toContain('id="a"');
+    });
+  });
+
+  describe("context menu retargets after hover freeze", () => {
+    const rightClick = (x: number, y: number): void => {
+      document.dispatchEvent(
+        new MouseEvent("contextmenu", { clientX: x, clientY: y, bubbles: true, cancelable: true }),
+      );
+    };
+
+    it("a second right-click while the menu is open targets the element under it", async () => {
+      const lens = await setup();
+      const a = makeEl("a");
+      const b = makeEl("b");
+      lens.activate();
+      await openMenu(a);
+      elementAt = b;
+      rightClick(50, 50);
+      await wait(10);
+      expect(lens.getState().targetElement).toBe(b);
+
+      keydown({ key: "c", metaKey: true });
+      await wait(10);
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText.mock.calls[0]![0]).toContain('id="b"');
+    });
+
+    it("a right-click on the open menu itself keeps its target", async () => {
+      const lens = await setup();
+      const a = makeEl("a");
+      const b = makeEl("b");
+      lens.activate();
+      await openMenu(a);
+      elementAt = b;
+      const item = getShadowRoot().querySelector('[role="menuitem"]')!;
+      const event = new MouseEvent("contextmenu", {
+        clientX: 12,
+        clientY: 12,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      });
+      item.dispatchEvent(event);
+      await wait(10);
+      expect(event.defaultPrevented).toBe(true);
+      expect(lens.getState().targetElement).toBe(a);
+      expect(getShadowRoot().querySelector('[role="menu"]')).not.toBe(null);
+    });
+
+    it("dismissing the menu re-detects under the pointer", async () => {
+      const lens = await setup();
+      const a = makeEl("a");
+      const b = makeEl("b");
+      lens.activate();
+      await openMenu(a);
+      elementAt = b;
+      pointerMove(50, 50);
+      (getShadowRoot().querySelector(".lens-menu-backdrop") as HTMLElement).click();
+      await wait(10);
+      expect(getShadowRoot().querySelector('[role="menu"]')).toBe(null);
+      expect(lens.getState().targetElement).toBe(b);
+
+      keydown({ key: "c", metaKey: true });
+      await wait(10);
+      expect(writeText.mock.calls[0]![0]).toContain('id="b"');
     });
   });
 

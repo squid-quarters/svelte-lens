@@ -104,4 +104,16 @@ describe("SelectionLabel", () => {
     });
     expect(mounted.label.style.left).toBe(`${1000 - LABEL_WIDTH - 4}px`);
   });
+
+  it("clamps against the scrollbar-free viewport when classic scrollbars are shown", () => {
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(983);
+    mounted = renderLabel({
+      visible: true,
+      bounds: bounds(980, 100),
+      tagName: "button",
+      componentName: null,
+      status: "copied",
+    });
+    expect(mounted.label.style.left).toBe(`${983 - LABEL_WIDTH - 4}px`);
+  });
 });

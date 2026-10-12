@@ -1,6 +1,7 @@
 <script lang="ts">
   import { VIEWPORT_MARGIN_PX } from "../constants.js";
   import type { ActionContext, ContextMenuAction, Position } from "../types.js";
+  import { getViewportSize } from "../utils/get-viewport-size.js";
 
   interface Props {
     position: Position | null;
@@ -26,8 +27,9 @@
   // Keep the menu inside the viewport; the strict-contained host clips overflow.
   const menuStyle = $derived.by(() => {
     if (!position) return "";
-    const maxX = window.innerWidth - menuSize.width - VIEWPORT_MARGIN_PX;
-    const maxY = window.innerHeight - menuSize.height - VIEWPORT_MARGIN_PX;
+    const viewport = getViewportSize();
+    const maxX = viewport.width - menuSize.width - VIEWPORT_MARGIN_PX;
+    const maxY = viewport.height - menuSize.height - VIEWPORT_MARGIN_PX;
     const x = Math.max(VIEWPORT_MARGIN_PX, Math.min(position.x, maxX));
     const y = Math.max(VIEWPORT_MARGIN_PX, Math.min(position.y, maxY));
     return `position:fixed;top:${y}px;left:${x}px`;

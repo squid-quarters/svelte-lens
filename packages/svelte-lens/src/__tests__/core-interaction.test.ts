@@ -231,6 +231,21 @@ describe("core/index.svelte.ts — interaction", () => {
       expect(lens.isActive()).toBe(true);
       expect(repeat.defaultPrevented).toBe(true);
     });
+
+    it("ignores key-less keydown events (Chrome autofill)", async () => {
+      const lens = await setup();
+      const input = makeEl("field", "input");
+      const errors: unknown[] = [];
+      const onError = (e: ErrorEvent) => errors.push(e.error);
+      window.addEventListener("error", onError);
+      try {
+        input.dispatchEvent(new Event("keydown", { bubbles: true, cancelable: true }));
+      } finally {
+        window.removeEventListener("error", onError);
+      }
+      expect(errors).toEqual([]);
+      expect(lens.isActive()).toBe(false);
+    });
   });
 
   describe("activation options (#7)", () => {

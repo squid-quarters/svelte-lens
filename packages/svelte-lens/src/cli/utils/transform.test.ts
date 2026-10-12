@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyTransform, previewTransform } from "./transform.js";
-import { VITE_SVELTE_IMPORT } from "./templates.js";
+import { SVELTEKIT_LAYOUT_BLOCK, VITE_SVELTE_IMPORT } from "./templates.js";
 
 let root: string;
 
@@ -136,6 +136,56 @@ ${instanceTag}
     expect(out.endsWith("<slot />\n")).toBe(true);
   });
 
+  it("prepends a new script instead of merging into a <svelte:head> JSON-LD script", () => {
+    const head = `<svelte:head>
+  <script type="application/ld+json">{"@context":"https://schema.org"}</script>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-X"></script>
+</svelte:head>
+<slot />
+`;
+    const out = mergeLayout(head);
+    expect(out.endsWith(head)).toBe(true);
+    expect(out.startsWith(`${SVELTEKIT_LAYOUT_BLOCK}\n\n`)).toBe(true);
+  });
+
+  it("skips <script> in markup when the layout also has an instance script", () => {
+    const out = mergeLayout(`<svelte:head>
+  <script>window.dataLayer = [];</script>
+</svelte:head>
+<script type="text/javascript">
+  let x = 1;
+</script>
+`);
+    expect(out).toContain("<script>window.dataLayer = [];</script>");
+    expectWired(scripts(out)[1] ?? "");
+  });
+
+  it("ignores a <script> mention inside an HTML comment", () => {
+    const out = mergeLayout(`<!-- <script> tags go below -->
+<script>
+  let x = 1;
+</script>
+`);
+    expect(out.startsWith("<!-- <script> tags go below -->\n<script>\n")).toBe(true);
+    const instance = out.slice(out.indexOf("-->") + 3);
+    expectWired(scripts(instance)[0] ?? "");
+    expect(scripts(instance)[0]).toContain("let x = 1;");
+  });
+
+  it("rewrites a deprecated unscoped svelte-lens import instead of treating it as wired", () => {
+    const legacy = `<script>
+  import { onMount } from "svelte";
+  onMount(() => import("svelte-lens").then((m) => m.init()));
+</script>
+`;
+    writeLayout(legacy);
+    const result = previewTransform(root, "sveltekit");
+    expect(result.noChanges).toBeFalsy();
+    expect(result.newContent).toBe(legacy.replace('"svelte-lens"', '"@gear-null/svelte-lens"'));
+    applyTransform(result);
+    expect(previewTransform(root, "sveltekit").noChanges).toBe(true);
+  });
+
   it("is idempotent under --force", () => {
     writeLayout(`<script>
   let x = 1;
@@ -159,5 +209,12 @@ describe("previewTransform (vite-svelte)", () => {
     applyTransform(previewTransform(root, "vite-svelte", true));
     const content = readFileSync(entry, "utf-8");
     expect(content.split(VITE_SVELTE_IMPORT)).toHaveLength(2);
+  });
+
+  it("rewrites a deprecated unscoped svelte-lens import", () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src/main.ts"), 'import("svelte-lens").then((m) => m.init());\n');
+    const result = previewTransform(root, "vite-svelte");
+    expect(result.newContent).toBe('import("@gear-null/svelte-lens").then((m) => m.init());\n');
   });
 });

@@ -36,7 +36,19 @@ const findFirst = (projectRoot: string, candidates: string[]): string | null => 
 };
 
 const fileContainsLensImport = (content: string): boolean =>
-  /["'`](?:@gear-null\/svelte-lens|svelte-lens)["'`]/.test(content);
+  /["'`]@gear-null\/svelte-lens["'`]/.test(content);
+
+// Releases before the rename wired `import("svelte-lens")`; the unscoped
+// package is deprecated, so point those specifiers at the scoped one.
+const LEGACY_SPECIFIER_RE =
+  /(\bimport\s*\(\s*|\bfrom\s*|\bimport\s*)(["'`])svelte-lens(\/[^"'`]*)?\2/g;
+
+const rewriteLegacyImports = (content: string): string =>
+  content.replace(
+    LEGACY_SPECIFIER_RE,
+    (_match, prefix: string, quote: string, subpath = "") =>
+      `${prefix}${quote}@gear-null/svelte-lens${subpath}${quote}`,
+  );
 
 // Aliased bindings so the merged code can't collide with (or depend on) the
 // user's own imports of `dev` / `onMount`. Duplicate imports are valid ES.
@@ -50,53 +62,84 @@ const LENS_SCRIPT_IMPORTS = [
   `  import { onMount as __lensOnMount } from "svelte";`,
 ];
 
-// Instance script only: onMount in a `<script module>` / `context="module"`
-// block runs outside component init and throws.
-const MODULE_ATTR = String.raw`\b(?:module\b|context\s*=\s*["']module["'])`;
-const INSTANCE_SCRIPT_RE = new RegExp(
-  String.raw`(<script(?![^>]*${MODULE_ATTR})[^>]*>)([\s\S]*?)(<\/script>)`,
-);
-const MODULE_SCRIPT_RE = new RegExp(
-  String.raw`<script(?=[^>]*${MODULE_ATTR})([^>]*)>[\s\S]*?<\/script>`,
-);
+// onMount in a `<script module>` / `context="module"` block runs outside
+// component init and throws, so only the instance script may be merged into.
+const MODULE_ATTR_RE = /\b(?:module\b|context\s*=\s*["']module["'])/;
+const SCRIPT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script>/g;
+// Comments and <svelte:head> hold markup scripts (JSON-LD, analytics), never
+// the component's own scripts.
+const NON_COMPONENT_SCRIPT_REGION_RE = /<!--[\s\S]*?-->|<svelte:head\b[\s\S]*?<\/svelte:head>/g;
 
-const mergeIntoExistingScript = (content: string): string => {
-  if (fileContainsLensImport(content)) return content;
+interface ScriptBlock {
+  start: number;
+  end: number;
+  openTag: string;
+  body: string;
+  attrs: string;
+}
 
-  const scriptMatch = content.match(INSTANCE_SCRIPT_RE);
-  if (!scriptMatch || scriptMatch.index === undefined) {
+const isComponentScriptAttrs = (attrs: string): boolean => {
+  if (/\bsrc\s*=/.test(attrs)) return false;
+  const type = attrs.match(/\btype\s*=\s*["']?([^"'\s>]+)/)?.[1];
+  return !type || /^(?:text|application)\/(?:javascript|typescript)$/i.test(type);
+};
+
+const findComponentScripts = (
+  content: string,
+): { instance?: ScriptBlock; module?: ScriptBlock } => {
+  // Blank out non-component regions with same-length padding so match offsets
+  // still index into the original content.
+  const masked = content.replace(NON_COMPONENT_SCRIPT_REGION_RE, (m) => " ".repeat(m.length));
+  const found: { instance?: ScriptBlock; module?: ScriptBlock } = {};
+  for (const match of masked.matchAll(SCRIPT_RE)) {
+    const attrs = match[1] ?? "";
+    if (!isComponentScriptAttrs(attrs)) continue;
+    const start = match.index;
+    const block: ScriptBlock = {
+      start,
+      end: start + match[0].length,
+      openTag: `<script${attrs}>`,
+      body: match[2] ?? "",
+      attrs,
+    };
+    const kind = MODULE_ATTR_RE.test(attrs) ? "module" : "instance";
+    found[kind] ??= block;
+  }
+  return found;
+};
+
+// Returns null when the file has no component script to merge into.
+const mergeIntoExistingScript = (content: string): string | null => {
+  const { instance, module } = findComponentScripts(content);
+
+  if (!instance) {
+    if (!module) return null;
     // Only a module script: add a new instance script after it, same lang.
-    const moduleMatch = content.match(MODULE_SCRIPT_RE);
-    if (!moduleMatch || moduleMatch.index === undefined) return content;
-    const lang = moduleMatch[1]?.match(/\blang\s*=\s*["'][^"']*["']/)?.[0];
+    const lang = module.attrs.match(/\blang\s*=\s*["'][^"']*["']/)?.[0];
     const block = [
       lang ? `<script ${lang}>` : "<script>",
       ...LENS_SCRIPT_IMPORTS,
       LENS_ONMOUNT_CODE,
       "</script>",
     ].join("\n");
-    const end = moduleMatch.index + moduleMatch[0].length;
-    return `${content.slice(0, end)}\n\n${block}${content.slice(end)}`;
+    return `${content.slice(0, module.end)}\n\n${block}${content.slice(module.end)}`;
   }
-
-  const [whole, openTag = "<script>", scriptBody = "", closeTag = "</script>"] = scriptMatch;
 
   // Imports are hoisted, so they can go right after the open tag; the existing
   // statements are kept as-is (no line-based import parsing).
-  const body = scriptBody.replace(/\s*$/, "");
+  const body = instance.body.replace(/\s*$/, "");
   const newBlock = [
-    openTag,
+    instance.openTag,
     ...LENS_SCRIPT_IMPORTS,
     `${body.startsWith("\n") ? body.slice(1) : body}\n${LENS_ONMOUNT_CODE}`,
-    closeTag,
+    "</script>",
   ].join("\n");
 
   // Splice by index rather than String.replace so `$$props` etc. survive.
-  const start = scriptMatch.index;
-  return content.slice(0, start) + newBlock + content.slice(start + whole.length);
+  return content.slice(0, instance.start) + newBlock + content.slice(instance.end);
 };
 
-const transformSvelteKit = (projectRoot: string, force: boolean): TransformResult => {
+const transformSvelteKit = (projectRoot: string): TransformResult => {
   const layoutPath = findFirst(projectRoot, ROOT_LAYOUT_PATHS);
 
   if (!layoutPath || !layoutPath.endsWith(".svelte")) {
@@ -111,7 +154,18 @@ const transformSvelteKit = (projectRoot: string, force: boolean): TransformResul
   }
 
   const originalContent = readFileSync(layoutPath, "utf-8");
-  if (fileContainsLensImport(originalContent) && !force) {
+  const migrated = rewriteLegacyImports(originalContent);
+  if (migrated !== originalContent) {
+    return {
+      success: true,
+      filePath: layoutPath,
+      message: "Rewrites deprecated `svelte-lens` import in layout to `@gear-null/svelte-lens`",
+      originalContent,
+      newContent: migrated,
+    };
+  }
+
+  if (fileContainsLensImport(originalContent)) {
     return {
       success: true,
       filePath: layoutPath,
@@ -120,27 +174,18 @@ const transformSvelteKit = (projectRoot: string, force: boolean): TransformResul
     };
   }
 
-  // If layout has an existing <script> block, merge into it
-  if (/<script[^>]*>/.test(originalContent)) {
-    const newContent = mergeIntoExistingScript(originalContent);
-    if (newContent === originalContent) {
-      return {
-        success: true,
-        filePath: layoutPath,
-        message: "svelte-lens already imported in layout",
-        noChanges: true,
-      };
-    }
+  const merged = mergeIntoExistingScript(originalContent);
+  if (merged !== null) {
     return {
       success: true,
       filePath: layoutPath,
       message: "Merges svelte-lens dev import into existing layout script",
       originalContent,
-      newContent,
+      newContent: merged,
     };
   }
 
-  // No existing script — prepend the full block
+  // No component script — prepend the full block
   const newContent = `${SVELTEKIT_LAYOUT_BLOCK}\n\n${originalContent}`;
 
   return {
@@ -165,6 +210,17 @@ const transformViteSvelte = (projectRoot: string): TransformResult => {
   }
 
   const originalContent = readFileSync(entryPath, "utf-8");
+  const migrated = rewriteLegacyImports(originalContent);
+  if (migrated !== originalContent) {
+    return {
+      success: true,
+      filePath: entryPath,
+      message: "Rewrites deprecated `svelte-lens` import in entry to `@gear-null/svelte-lens`",
+      originalContent,
+      newContent: migrated,
+    };
+  }
+
   if (fileContainsLensImport(originalContent)) {
     return {
       success: true,
@@ -188,9 +244,10 @@ const transformViteSvelte = (projectRoot: string): TransformResult => {
 export const previewTransform = (
   projectRoot: string,
   framework: Framework,
-  force = false,
+  // Transforms are idempotent, so --force has nothing extra to overwrite.
+  _force = false,
 ): TransformResult => {
-  if (framework === "sveltekit") return transformSvelteKit(projectRoot, force);
+  if (framework === "sveltekit") return transformSvelteKit(projectRoot);
   if (framework === "vite-svelte") return transformViteSvelte(projectRoot);
   return {
     success: false,

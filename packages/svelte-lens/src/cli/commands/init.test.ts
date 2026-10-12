@@ -73,6 +73,20 @@ describe("init command", () => {
     expect(readFileSync(layoutPath(), "utf-8")).toContain("@gear-null/svelte-lens");
   });
 
+  it("migrates a layout wired to the deprecated package before advising its removal", async () => {
+    const legacyLayout = `<script>
+  import { onMount } from "svelte";
+  onMount(() => import("svelte-lens").then((m) => m.init()));
+</script>
+`;
+    writeKitProject({ "svelte-lens": "^1.0.0" }, legacyLayout);
+    await runInit("--yes");
+    expect(installPackages).toHaveBeenCalledWith(["@gear-null/svelte-lens"], "npm", root);
+    const layout = readFileSync(layoutPath(), "utf-8");
+    expect(layout).toContain('import("@gear-null/svelte-lens")');
+    expect(layout).not.toMatch(/["']svelte-lens["']/);
+  });
+
   it("exits with an error instead of prompting when stdin is not a TTY", async () => {
     writeKitProject({}, PLAIN_LAYOUT);
     process.stdin.isTTY = false;

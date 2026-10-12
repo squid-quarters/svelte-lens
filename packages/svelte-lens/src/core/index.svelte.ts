@@ -66,7 +66,7 @@ const isCopyKeyCombo = (event: KeyboardEvent): boolean => {
 // Prefer the physical key (code) so Caps Lock and Option-modified layouts
 // still match; fall back to key for synthetic events without a code.
 const isDefaultActivationCombo = (event: KeyboardEvent): boolean =>
-  (event.code === "KeyG" || event.key.toLowerCase() === "g") &&
+  (event.code === "KeyG" || event.key?.toLowerCase() === "g") &&
   (event.metaKey || event.ctrlKey) &&
   event.altKey;
 

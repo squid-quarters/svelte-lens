@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Bounds } from "../types.js";
+  import { getViewportSize } from "../utils/get-viewport-size.js";
 
   interface Props {
     visible: boolean;
@@ -36,7 +37,7 @@
     if (!visible || !bounds) return "display:none";
     const top = Math.max(bounds.y - 28, 4);
     // Clamp on both sides; the strict-contained host clips overflow.
-    const maxLeft = Math.max(window.innerWidth - labelWidth - 4, 4);
+    const maxLeft = Math.max(getViewportSize().width - labelWidth - 4, 4);
     const left = Math.min(Math.max(bounds.x, 4), maxLeft);
     return `position:fixed;top:${top}px;left:${left}px`;
   });
@@ -72,7 +73,8 @@
     gap: 6px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
     white-space: nowrap;
-    max-width: calc(100vw - 8px);
+    /* % of the host (its containing block); 100vw would include scrollbars. */
+    max-width: calc(100% - 8px);
     box-sizing: border-box;
     z-index: 2147483646;
   }

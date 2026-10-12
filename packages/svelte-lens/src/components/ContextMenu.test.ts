@@ -69,4 +69,12 @@ describe("ContextMenu", () => {
     expect(mounted.menu.style.left).toBe(`${1000 - MENU_WIDTH - VIEWPORT_MARGIN_PX}px`);
     expect(mounted.menu.style.top).toBe(`${800 - MENU_HEIGHT - VIEWPORT_MARGIN_PX}px`);
   });
+
+  it("clamps against the scrollbar-free viewport when classic scrollbars are shown", () => {
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(983);
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(783);
+    mounted = renderMenu({ x: 990, y: 790 });
+    expect(mounted.menu.style.left).toBe(`${983 - MENU_WIDTH - VIEWPORT_MARGIN_PX}px`);
+    expect(mounted.menu.style.top).toBe(`${783 - MENU_HEIGHT - VIEWPORT_MARGIN_PX}px`);
+  });
 });

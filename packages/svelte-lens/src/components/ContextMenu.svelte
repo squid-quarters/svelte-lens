@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { VIEWPORT_MARGIN_PX } from "../constants.js";
   import type { ActionContext, ContextMenuAction, Position } from "../types.js";
 
   interface Props {
@@ -9,6 +10,28 @@
   }
 
   let { position, actions, actionContext, onDismiss }: Props = $props();
+
+  let menuEl: HTMLDivElement | undefined = $state();
+  let menuSize = $state({ width: 0, height: 0 });
+
+  // Re-measure whenever the menu opens, moves or its action list changes.
+  $effect(() => {
+    void position;
+    void actions.length;
+    if (!menuEl) return;
+    const { width, height } = menuEl.getBoundingClientRect();
+    menuSize = { width, height };
+  });
+
+  // Keep the menu inside the viewport; the strict-contained host clips overflow.
+  const menuStyle = $derived.by(() => {
+    if (!position) return "";
+    const maxX = window.innerWidth - menuSize.width - VIEWPORT_MARGIN_PX;
+    const maxY = window.innerHeight - menuSize.height - VIEWPORT_MARGIN_PX;
+    const x = Math.max(VIEWPORT_MARGIN_PX, Math.min(position.x, maxX));
+    const y = Math.max(VIEWPORT_MARGIN_PX, Math.min(position.y, maxY));
+    return `position:fixed;top:${y}px;left:${x}px`;
+  });
 
   const isEnabled = (action: ContextMenuAction): boolean => {
     if (!actionContext) return false;
@@ -24,7 +47,7 @@
 </script>
 
 {#if position && actionContext}
-  <div class="lens-menu" style="position:fixed;top:{position.y}px;left:{position.x}px" role="menu">
+  <div bind:this={menuEl} class="lens-menu" style={menuStyle} role="menu">
     {#each actions as action (action.id)}
       {@const enabled = isEnabled(action)}
       <button

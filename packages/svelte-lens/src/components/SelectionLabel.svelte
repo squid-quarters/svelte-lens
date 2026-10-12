@@ -16,13 +16,28 @@
     if (status === "copying") return statusText ?? "Copying...";
     if (status === "copied") return statusText ?? "Copied";
     if (status === "error") return statusText ?? "Failed";
-    return componentName ?? tagName ?? "";
+    return componentName ?? "";
+  });
+
+  let labelEl: HTMLDivElement | undefined = $state();
+  let labelWidth = $state(0);
+
+  // Re-measure whenever the label is shown or its content changes.
+  $effect(() => {
+    void visible;
+    void bounds;
+    void tagName;
+    void labelText;
+    if (!labelEl) return;
+    labelWidth = labelEl.getBoundingClientRect().width;
   });
 
   const positionStyle = $derived(() => {
     if (!visible || !bounds) return "display:none";
     const top = Math.max(bounds.y - 28, 4);
-    const left = Math.max(bounds.x, 4);
+    // Clamp on both sides; the strict-contained host clips overflow.
+    const maxLeft = Math.max(window.innerWidth - labelWidth - 4, 4);
+    const left = Math.min(Math.max(bounds.x, 4), maxLeft);
     return `position:fixed;top:${top}px;left:${left}px`;
   });
 
@@ -34,10 +49,10 @@
   };
 </script>
 
-<div class="lens-label" style={positionStyle()}>
+<div bind:this={labelEl} class="lens-label" style={positionStyle()}>
   <span class="lens-label-dot" style="background:{colorByStatus[status]}"></span>
   {#if tagName}<span class="lens-label-tag">{tagName}</span>{/if}
-  <span class="lens-label-name">{labelText}</span>
+  {#if labelText}<span class="lens-label-name">{labelText}</span>{/if}
 </div>
 
 <style>
@@ -57,6 +72,8 @@
     gap: 6px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
     white-space: nowrap;
+    max-width: calc(100vw - 8px);
+    box-sizing: border-box;
     z-index: 2147483646;
   }
   .lens-label-dot {
@@ -71,5 +88,8 @@
   .lens-label-name {
     color: white;
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 </style>

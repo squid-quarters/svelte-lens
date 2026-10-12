@@ -164,6 +164,32 @@ test.describe("svelte-lens E2E", () => {
     await expect(menu).toContainText("Copy");
   });
 
+  test("context menu Copy item copies the element and closes the menu", async ({ page }) => {
+    await page.waitForSelector("[data-svelte-lens]", { timeout: 5000 });
+
+    // Start from a known clipboard value so a no-op copy can't pass.
+    await page.evaluate(() => navigator.clipboard.writeText("sentinel"));
+
+    await page.keyboard.press("Meta+Alt+g");
+
+    const counter = page.locator("button.counter");
+    await counter.hover();
+    await expect(page.locator(".lens-label")).toBeVisible({ timeout: 3000 });
+
+    await counter.click({ button: "right" });
+    const menu = page.locator(".lens-menu");
+    await expect(menu).toBeVisible({ timeout: 3000 });
+
+    await menu.getByRole("menuitem", { name: /Copy/ }).click();
+
+    await expect(menu).toBeHidden({ timeout: 3000 });
+    await expect(page.locator(".lens-label")).toContainText("Copied", { timeout: 3000 });
+
+    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clipboardText).not.toBe("sentinel");
+    expect(clipboardText).toContain("button");
+  });
+
   test("window.__SVELTE_LENS__ is available after init", async ({ page }) => {
     await page.waitForSelector("[data-svelte-lens]", { timeout: 5000 });
 

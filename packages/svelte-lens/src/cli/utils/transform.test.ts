@@ -31,6 +31,10 @@ const mergeLayout = (content: string): string => {
 const scripts = (content: string): string[] =>
   [...content.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
 
+const LENS_IMPORTS = `  import { dev as __lensDev } from "$app/environment";
+  import { onMount as __lensOnMount } from "svelte";
+`;
+
 const expectWired = (script: string) => {
   expect(script).toContain('import { dev as __lensDev } from "$app/environment";');
   expect(script).toContain('import { onMount as __lensOnMount } from "svelte";');
@@ -120,6 +124,18 @@ ${instanceTag}
     expect(moduleScript).toBe("\n  export const prerender = true;\n");
     expectWired(instanceScript ?? "");
     expect(out.startsWith(moduleTag)).toBe(true);
+  });
+
+  it("merges after a script open tag whose quoted attribute contains '>'", () => {
+    const openTag = '<script lang="ts" generics="T extends Record<string, unknown>">';
+    const out = mergeLayout(`${openTag}
+  let { children } = $props();
+</script>
+`);
+    expect(out.startsWith(`${openTag}\n${LENS_IMPORTS}`)).toBe(true);
+    const script = out.slice(openTag.length, out.indexOf("</script>"));
+    expect(script).toContain("let { children } = $props();");
+    expectWired(script);
   });
 
   it("adds an instance script when only a module script exists", () => {

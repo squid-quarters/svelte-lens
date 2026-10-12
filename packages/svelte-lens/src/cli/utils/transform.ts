@@ -68,9 +68,10 @@ const MODULE_ATTR_RE = /\b(?:module\b|context\s*=\s*["']module["'])/;
 // Scanned left to right, so whichever region opens first swallows the others:
 // comments and <svelte:head> hold markup scripts (JSON-LD, analytics), never
 // the component's own scripts, while a `<!--` or `<svelte:head>` mentioned
-// inside a <script>/<style> body is just code.
+// inside a <script>/<style> body is just code. Open tags skip quoted attribute
+// values so a `>` in e.g. `generics="T extends Array<string>"` doesn't end them.
 const TOP_LEVEL_REGION_RE =
-  /<!--[\s\S]*?-->|<svelte:head\b[\s\S]*?<\/svelte:head>|<style\b[^>]*>[\s\S]*?<\/style>|<script\b([^>]*)>([\s\S]*?)<\/script>/g;
+  /<!--[\s\S]*?-->|<svelte:head\b[\s\S]*?<\/svelte:head>|<style\b(?:"[^"]*"|'[^']*'|[^>"'])*>[\s\S]*?<\/style>|<script\b((?:"[^"]*"|'[^']*'|[^>"'])*)>([\s\S]*?)<\/script>/g;
 
 interface ScriptBlock {
   start: number;

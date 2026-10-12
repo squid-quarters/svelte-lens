@@ -16,7 +16,7 @@
   "author": "gear-null",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gear-null/svelte-lens.git"
+    "url": "git+https://github.com/squid-quarters/svelte-lens.git"
   },
   "type": "module",
   "main": "./dist/index.js",
@@ -83,8 +83,8 @@
     "vite-plugin-dts": "^5.1.2",
     "vitest": "^4.1.11"
   },
-  "homepage": "https://github.com/gear-null/svelte-lens#readme",
+  "homepage": "https://github.com/squid-quarters/svelte-lens#readme",
   "bugs": {
-    "url": "https://github.com/gear-null/svelte-lens/issues"
+    "url": "https://github.com/squid-quarters/svelte-lens/issues"
   }
 }

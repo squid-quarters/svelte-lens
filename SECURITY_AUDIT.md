@@ -2,6 +2,7 @@
 
 **Date**: 2026-05-25
 **Scope**: `gear-null/svelte-lens` repository (all branches), published `@gear-null/svelte-lens@1.0.0`, all CI/CD workflows, repo settings.
+**Note**: the repository has since moved to `squid-quarters/svelte-lens` (the old name redirects). The `1.0.1` provenance attestation records `github.com/gear-null/svelte-lens` because it was built before the transfer.
 **Methodology**: dependency audit (`pnpm audit`), workflow injection patterns, git history secret scan, source-code review of DOM-touching/IO/IPC paths, MCP server review, CLI review, supply-chain review (provenance + signatures), repo-settings review.
 
 ---
@@ -704,7 +705,8 @@ Full-project re-review after the round-1 remediation PRs (#11, #14, #16, #17, #1
 
 - Fixed and verified: #1, #2, #4, #5, #6, #7, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #23.
 - Fixed via repo settings: #8, #9 (dependabot security updates, secret scanning + push protection now enabled).
-- Still open: #3 (npm `1.0.0` has no provenance attestation — requires publishing `1.0.1` from CI), #10 (`element-source` license still unclear upstream), #22 (rolling maintenance).
+- Fixed by release: #3 — `@gear-null/svelte-lens@1.0.1` was published from `.github/workflows/release.yml` (tag `@gear-null/svelte-lens@1.0.1`) with an SLSA v1 provenance attestation (verify: `npm view @gear-null/svelte-lens@1.0.1 dist.attestations`). `1.0.0` stays unattested; optionally `npm deprecate @gear-null/svelte-lens@1.0.0 "no provenance attestation; upgrade to >= 1.0.1"`.
+- Still open: #10 (`element-source` license still unclear upstream), #22 (rolling maintenance).
 - Note on #11: `^0.0.5` is semantically exact for a `0.0.x` version (caret cannot move the leftmost non-zero digit), so no pinning change is required.
 
 ## Round-2 findings

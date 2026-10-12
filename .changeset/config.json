@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
   "changelog": [
     "@changesets/changelog-github",
-    { "repo": "gear-null/svelte-lens" }
+    { "repo": "squid-quarters/svelte-lens" }
   ],
   "commit": false,
   "fixed": [],

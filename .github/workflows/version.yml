@@ -49,7 +49,9 @@ jobs:
 
       - name: Create or Update Version PR
         id: changesets
-        uses: changesets/action@198f833dd7d863100ea6e28967bc9a9fdefadb0a # pin@v2.1.0
+        # Held at v1: v2 renames these inputs (and throws on the old names)
+        # and requires Changesets CLI v3. Migrate both together.
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # pin@v1.9.0
         with:
           # "pnpm run version" — the bare "pnpm version" invokes pnpm's
           # builtin version command, not the package.json script, so the

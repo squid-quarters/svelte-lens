@@ -43,6 +43,10 @@ updates:
       github-actions:
         patterns:
           - "*"
+    # changesets/action v2 requires Changesets CLI v3; migrate both together.
+    ignore:
+      - dependency-name: "changesets/action"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(actions)"
     labels:

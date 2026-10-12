@@ -67,7 +67,7 @@
     "zod": "^3.25.76"
   },
   "peerDependencies": {
-    "svelte": "^5.57.0"
+    "svelte": "^5.56.3"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

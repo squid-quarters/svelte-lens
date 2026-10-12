@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { Framework } from "./detect.js";
 import { SVELTEKIT_LAYOUT_BLOCK, VITE_SVELTE_IMPORT } from "./templates.js";
@@ -62,17 +63,6 @@ const LENS_SCRIPT_IMPORTS = [
   `  import { onMount as __lensOnMount } from "svelte";`,
 ];
 
-// onMount in a `<script module>` / `context="module"` block runs outside
-// component init and throws, so only the instance script may be merged into.
-const MODULE_ATTR_RE = /\b(?:module\b|context\s*=\s*["']module["'])/;
-// Scanned left to right, so whichever region opens first swallows the others:
-// comments and <svelte:head> hold markup scripts (JSON-LD, analytics), never
-// the component's own scripts, while a `<!--` or `<svelte:head>` mentioned
-// inside a <script>/<style> body is just code. Open tags skip quoted attribute
-// values so a `>` in e.g. `generics="T extends Array<string>"` doesn't end them.
-const TOP_LEVEL_REGION_RE =
-  /<!--[\s\S]*?-->|<svelte:head\b[\s\S]*?<\/svelte:head>|<style\b(?:"[^"]*"|'[^']*'|[^>"'])*>[\s\S]*?<\/style>|<script\b((?:"[^"]*"|'[^']*'|[^>"'])*)>([\s\S]*?)<\/script>/g;
-
 interface ScriptBlock {
   start: number;
   end: number;
@@ -81,37 +71,49 @@ interface ScriptBlock {
   attrs: string;
 }
 
-const isComponentScriptAttrs = (attrs: string): boolean => {
-  if (/\bsrc\s*=/.test(attrs)) return false;
-  const type = attrs.match(/\btype\s*=\s*["']?([^"'\s>]+)/)?.[1];
-  return !type || /^(?:text|application)\/(?:javascript|typescript)$/i.test(type);
+interface SvelteScriptNode {
+  start: number;
+  end: number;
+  content: { start: number; end: number };
+}
+
+type SvelteParse = (
+  source: string,
+  options: { modern: true },
+) => { instance: SvelteScriptNode | null; module: SvelteScriptNode | null };
+
+// Svelte's own parser decides which <script> is the component's: regexes can't
+// tell a real script from `<script` text in comments, <svelte:head>, or markup
+// expressions like {@html "<script>…</script>"}. Prefer the project's svelte,
+// falling back to the one resolvable from this package (peer dependency).
+const loadSvelteParse = (projectRoot: string): SvelteParse | null => {
+  for (const from of [join(projectRoot, "package.json"), import.meta.url]) {
+    try {
+      return (createRequire(from)("svelte/compiler") as { parse: SvelteParse }).parse;
+    } catch {
+      // try the next location
+    }
+  }
+  return null;
 };
 
-const findComponentScripts = (
-  content: string,
-): { instance?: ScriptBlock; module?: ScriptBlock } => {
-  const found: { instance?: ScriptBlock; module?: ScriptBlock } = {};
-  for (const match of content.matchAll(TOP_LEVEL_REGION_RE)) {
-    if (!match[0].startsWith("<script")) continue;
-    const attrs = match[1] ?? "";
-    if (!isComponentScriptAttrs(attrs)) continue;
-    const start = match.index;
-    const block: ScriptBlock = {
-      start,
-      end: start + match[0].length,
-      openTag: `<script${attrs}>`,
-      body: match[2] ?? "",
-      attrs,
-    };
-    const kind = MODULE_ATTR_RE.test(attrs) ? "module" : "instance";
-    found[kind] ??= block;
-  }
-  return found;
+const toBlock = (content: string, node: SvelteScriptNode | null): ScriptBlock | undefined => {
+  if (!node) return undefined;
+  const openTag = content.slice(node.start, node.content.start);
+  return {
+    start: node.start,
+    end: node.end,
+    openTag,
+    body: content.slice(node.content.start, node.content.end),
+    attrs: openTag.slice("<script".length, -1),
+  };
 };
 
 // Returns null when the file has no component script to merge into.
-const mergeIntoExistingScript = (content: string): string | null => {
-  const { instance, module } = findComponentScripts(content);
+const mergeIntoExistingScript = (content: string, parse: SvelteParse): string | null => {
+  const ast = parse(content, { modern: true });
+  const instance = toBlock(content, ast.instance);
+  const module = toBlock(content, ast.module);
 
   if (!instance) {
     if (!module) return null;
@@ -175,7 +177,18 @@ const transformSvelteKit = (projectRoot: string): TransformResult => {
     };
   }
 
-  const merged = mergeIntoExistingScript(originalContent);
+  const parse = loadSvelteParse(projectRoot);
+  let merged: string | null;
+  try {
+    if (!parse) throw new Error("svelte/compiler not found");
+    merged = mergeIntoExistingScript(originalContent, parse);
+  } catch {
+    return {
+      success: false,
+      filePath: layoutPath,
+      message: `Could not parse ${layoutPath}. Add this to your root layout yourself:\n\n${SVELTEKIT_LAYOUT_BLOCK}`,
+    };
+  }
   if (merged !== null) {
     return {
       success: true,

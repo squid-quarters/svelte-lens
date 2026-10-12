@@ -7,6 +7,10 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    # Only widen ranges when the new version falls outside them. The default
+    # "increase" also raises peerDependencies floors (svelte), which would
+    # silently drop support for consumers' older versions in a patch release.
+    versioning-strategy: increase-if-necessary
     groups:
       # Group all dev tooling updates into one PR to reduce noise
       dev-dependencies:

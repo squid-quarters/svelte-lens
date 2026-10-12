@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { compile } from "svelte/compiler";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyTransform, previewTransform } from "./transform.js";
 import { SVELTEKIT_LAYOUT_BLOCK, VITE_SVELTE_IMPORT } from "./templates.js";
@@ -211,6 +212,34 @@ ${line}
         "<!-- nav -->\n<svelte:head><title>x</title></svelte:head>\n{@render children()}\n",
       ),
     ).toBe(true);
+  });
+
+  it("prepends a new script instead of merging into an {@html} <script> string", () => {
+    const markup =
+      "<slot />\n\n{@html `<script>window.dataLayer = window.dataLayer || [];</script>`}\n";
+    const out = mergeLayout(markup);
+    expect(out).toBe(`${SVELTEKIT_LAYOUT_BLOCK}\n\n${markup}`);
+    expect(() => compile(out, { filename: "+layout.svelte" })).not.toThrow();
+  });
+
+  it.each([
+    ["a string expression", '<p>hi</p>\n<code>{"<script>"}</code>\n'],
+    ["an {@html} string", "{@html '<script>x</script>'}\n"],
+  ])("merges into the instance script after <script> text in %s", (_, before) => {
+    const instance = "<script>\n  let { children } = $props();\n</script>\n{@render children()}\n";
+    const out = mergeLayout(`${before}${instance}`);
+    expect(out.startsWith(before)).toBe(true);
+    const merged = out.slice(before.length);
+    expect(merged.startsWith(`<script>\n${LENS_IMPORTS}`)).toBe(true);
+    expectWired(scripts(merged)[0] ?? "");
+    expect(() => compile(out, { filename: "+layout.svelte" })).not.toThrow();
+  });
+
+  it("fails with manual instructions when the layout cannot be parsed", () => {
+    writeLayout("<script>\n  let x = ;\n</script>\n");
+    const result = previewTransform(root, "sveltekit");
+    expect(result.success).toBe(false);
+    expect(result.message).toContain(SVELTEKIT_LAYOUT_BLOCK);
   });
 
   it("rewrites a deprecated unscoped svelte-lens import instead of treating it as wired", () => {

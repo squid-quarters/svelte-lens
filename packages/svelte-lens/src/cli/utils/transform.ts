@@ -38,66 +38,62 @@ const findFirst = (projectRoot: string, candidates: string[]): string | null => 
 const fileContainsLensImport = (content: string): boolean =>
   /["'`](?:@gear-null\/svelte-lens|svelte-lens)["'`]/.test(content);
 
+// Aliased bindings so the merged code can't collide with (or depend on) the
+// user's own imports of `dev` / `onMount`. Duplicate imports are valid ES.
 const LENS_ONMOUNT_CODE = `
-  onMount(() => {
-    if (dev) import("@gear-null/svelte-lens").then((m) => m.init());
+  __lensOnMount(() => {
+    if (__lensDev) import("@gear-null/svelte-lens").then((m) => m.init());
   });`;
 
-const LENS_SCRIPT_IMPORTS = {
-  dev: `import { dev } from "$app/environment";`,
-  onMount: `import { onMount } from "svelte";`,
-};
+const LENS_SCRIPT_IMPORTS = [
+  `  import { dev as __lensDev } from "$app/environment";`,
+  `  import { onMount as __lensOnMount } from "svelte";`,
+];
+
+// Instance script only: onMount in a `<script module>` / `context="module"`
+// block runs outside component init and throws.
+const MODULE_ATTR = String.raw`\b(?:module\b|context\s*=\s*["']module["'])`;
+const INSTANCE_SCRIPT_RE = new RegExp(
+  String.raw`(<script(?![^>]*${MODULE_ATTR})[^>]*>)([\s\S]*?)(<\/script>)`,
+);
+const MODULE_SCRIPT_RE = new RegExp(
+  String.raw`<script(?=[^>]*${MODULE_ATTR})([^>]*)>[\s\S]*?<\/script>`,
+);
 
 const mergeIntoExistingScript = (content: string): string => {
-  const scriptMatch = content.match(/(<script[^>]*>)([\s\S]*?)(<\/script>)/);
-  if (!scriptMatch) return content;
+  if (fileContainsLensImport(content)) return content;
 
-  const openTag = scriptMatch[1] ?? "<script>";
-  const scriptBody = scriptMatch[2] ?? "";
-  const closeTag = scriptMatch[3] ?? "</script>";
-
-  // If already has lens import, return unchanged
-  if (fileContainsLensImport(scriptBody)) return content;
-
-  const importsToAdd: string[] = [];
-  const bodyLines: string[] = [];
-
-  if (
-    !scriptBody.includes('from "$app/environment"') &&
-    !scriptBody.includes("from '$app/environment'")
-  ) {
-    importsToAdd.push(LENS_SCRIPT_IMPORTS.dev);
-  }
-  if (!scriptBody.includes('from "svelte"') && !scriptBody.includes("from 'svelte'")) {
-    importsToAdd.push(LENS_SCRIPT_IMPORTS.onMount);
-  }
-  bodyLines.push(LENS_ONMOUNT_CODE.trim());
-
-  // Build the new script body
-  const existingLines = scriptBody.trim().split("\n");
-  // Find where imports end and code begins
-  let importEndIndex = 0;
-  for (let i = 0; i < existingLines.length; i++) {
-    const line = existingLines[i];
-    if (line && !line.trim().startsWith("import ")) {
-      importEndIndex = i;
-      break;
-    }
-    if (i === existingLines.length - 1) importEndIndex = i + 1;
+  const scriptMatch = content.match(INSTANCE_SCRIPT_RE);
+  if (!scriptMatch || scriptMatch.index === undefined) {
+    // Only a module script: add a new instance script after it, same lang.
+    const moduleMatch = content.match(MODULE_SCRIPT_RE);
+    if (!moduleMatch || moduleMatch.index === undefined) return content;
+    const lang = moduleMatch[1]?.match(/\blang\s*=\s*["'][^"']*["']/)?.[0];
+    const block = [
+      lang ? `<script ${lang}>` : "<script>",
+      ...LENS_SCRIPT_IMPORTS,
+      LENS_ONMOUNT_CODE,
+      "</script>",
+    ].join("\n");
+    const end = moduleMatch.index + moduleMatch[0].length;
+    return `${content.slice(0, end)}\n\n${block}${content.slice(end)}`;
   }
 
-  const existingImports = existingLines.slice(0, importEndIndex);
-  const existingBody = existingLines.slice(importEndIndex);
+  const [whole, openTag = "<script>", scriptBody = "", closeTag = "</script>"] = scriptMatch;
 
-  const newImports = [...existingImports, ...importsToAdd];
-  const newBody = [...bodyLines, ...existingBody];
+  // Imports are hoisted, so they can go right after the open tag; the existing
+  // statements are kept as-is (no line-based import parsing).
+  const body = scriptBody.replace(/\s*$/, "");
+  const newBlock = [
+    openTag,
+    ...LENS_SCRIPT_IMPORTS,
+    `${body.startsWith("\n") ? body.slice(1) : body}\n${LENS_ONMOUNT_CODE}`,
+    closeTag,
+  ].join("\n");
 
-  const newScriptBody = [...newImports, "", ...newBody].join("\n");
-
-  return content.replace(
-    /<script[^>]*>[\s\S]*?<\/script>/,
-    `${openTag}\n${newScriptBody}\n  ${closeTag}`,
-  );
+  // Splice by index rather than String.replace so `$$props` etc. survive.
+  const start = scriptMatch.index;
+  return content.slice(0, start) + newBlock + content.slice(start + whole.length);
 };
 
 const transformSvelteKit = (projectRoot: string, force: boolean): TransformResult => {
@@ -127,6 +123,14 @@ const transformSvelteKit = (projectRoot: string, force: boolean): TransformResul
   // If layout has an existing <script> block, merge into it
   if (/<script[^>]*>/.test(originalContent)) {
     const newContent = mergeIntoExistingScript(originalContent);
+    if (newContent === originalContent) {
+      return {
+        success: true,
+        filePath: layoutPath,
+        message: "svelte-lens already imported in layout",
+        noChanges: true,
+      };
+    }
     return {
       success: true,
       filePath: layoutPath,
@@ -148,7 +152,7 @@ const transformSvelteKit = (projectRoot: string, force: boolean): TransformResul
   };
 };
 
-const transformViteSvelte = (projectRoot: string, force: boolean): TransformResult => {
+const transformViteSvelte = (projectRoot: string): TransformResult => {
   const entryPath = findFirst(projectRoot, VITE_ENTRY_PATHS);
 
   if (!entryPath) {
@@ -161,7 +165,7 @@ const transformViteSvelte = (projectRoot: string, force: boolean): TransformResu
   }
 
   const originalContent = readFileSync(entryPath, "utf-8");
-  if (fileContainsLensImport(originalContent) && !force) {
+  if (fileContainsLensImport(originalContent)) {
     return {
       success: true,
       filePath: entryPath,
@@ -187,7 +191,7 @@ export const previewTransform = (
   force = false,
 ): TransformResult => {
   if (framework === "sveltekit") return transformSvelteKit(projectRoot, force);
-  if (framework === "vite-svelte") return transformViteSvelte(projectRoot, force);
+  if (framework === "vite-svelte") return transformViteSvelte(projectRoot);
   return {
     success: false,
     filePath: "",

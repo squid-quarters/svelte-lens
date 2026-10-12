@@ -10,6 +10,7 @@ export interface ProjectInfo {
   packageManager: PackageManager;
   framework: Framework;
   hasSvelteLens: boolean;
+  hasLegacySvelteLens: boolean;
   isMonorepo: boolean;
 }
 
@@ -66,8 +67,13 @@ const detectMonorepo = (projectRoot: string): boolean => {
   }
 };
 
+// Only the scoped package satisfies the import the CLI writes; the deprecated
+// unscoped name is tracked separately so init still installs the scoped one.
 const hasSvelteLensInDeps = (deps: Record<string, string> | null): boolean =>
-  Boolean(deps?.["@gear-null/svelte-lens"] ?? deps?.["svelte-lens"]);
+  Boolean(deps?.["@gear-null/svelte-lens"]);
+
+const hasLegacySvelteLensInDeps = (deps: Record<string, string> | null): boolean =>
+  Boolean(deps?.["svelte-lens"]);
 
 export const detectProject = async (cwd: string): Promise<ProjectInfo> => {
   const packageManager = await detectPackageManager(cwd);
@@ -78,6 +84,7 @@ export const detectProject = async (cwd: string): Promise<ProjectInfo> => {
     packageManager,
     framework,
     hasSvelteLens: hasSvelteLensInDeps(deps),
+    hasLegacySvelteLens: hasLegacySvelteLensInDeps(deps),
     isMonorepo: detectMonorepo(cwd),
   };
 };

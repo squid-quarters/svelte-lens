@@ -109,9 +109,32 @@ const toBlock = (content: string, node: SvelteScriptNode | null): ScriptBlock | 
   };
 };
 
+// Svelte parses <style> bodies as plain CSS regardless of lang, so SCSS
+// (`//` comments, `$vars`) throws. Blank the bodies to equal-length whitespace
+// (newlines kept) so AST offsets still index into the original content. Spans
+// containing `<script` are left alone: blanking them could hide a real script.
+const blankStyleBodies = (content: string): string =>
+  content.replace(
+    /(<style\b(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?)(<\/style\s*>)/gi,
+    (match, open: string, body: string, close: string) =>
+      /<script\b/i.test(body) ? match : open + body.replace(/[^\n]/g, " ") + close,
+  );
+
+// Only retry with blanked styles when the plain parse fails, so layouts that
+// already parse are handled exactly as before.
+const parseLayout = (content: string, parse: SvelteParse): ReturnType<SvelteParse> => {
+  try {
+    return parse(content, { modern: true });
+  } catch (error) {
+    const blanked = blankStyleBodies(content);
+    if (blanked === content) throw error;
+    return parse(blanked, { modern: true });
+  }
+};
+
 // Returns null when the file has no component script to merge into.
 const mergeIntoExistingScript = (content: string, parse: SvelteParse): string | null => {
-  const ast = parse(content, { modern: true });
+  const ast = parseLayout(content, parse);
   const instance = toBlock(content, ast.instance);
   const module = toBlock(content, ast.module);
 

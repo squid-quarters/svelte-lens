@@ -235,6 +235,26 @@ ${line}
     expect(() => compile(out, { filename: "+layout.svelte" })).not.toThrow();
   });
 
+  it('merges into a layout whose <style lang="scss"> is not plain CSS', () => {
+    const style = `<style lang="scss">
+  // brand colour
+  $c: red;
+  :global(body) { a { color: #{$c}; } }
+</style>
+`;
+    const out = mergeLayout(`<script lang="ts">
+  let { children } = $props();
+</script>
+{@render children()}
+${style}`);
+    expect(out.startsWith(`<script lang="ts">\n${LENS_IMPORTS}`)).toBe(true);
+    const all = scripts(out);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toContain("let { children } = $props();");
+    expectWired(all[0] ?? "");
+    expect(out.endsWith(`</script>\n{@render children()}\n${style}`)).toBe(true);
+  });
+
   it("fails with manual instructions when the layout cannot be parsed", () => {
     writeLayout("<script>\n  let x = ;\n</script>\n");
     const result = previewTransform(root, "sveltekit");

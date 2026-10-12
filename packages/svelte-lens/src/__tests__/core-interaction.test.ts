@@ -252,6 +252,18 @@ describe("core/index.svelte.ts — interaction", () => {
       expect(ev.defaultPrevented).toBe(false);
     });
 
+    it("does not match AltGr+G typing ']' (Windows Czech layout), even in inputs", async () => {
+      const lens = await setup();
+      const input = makeEl("i", "input");
+      const ev = keydown(
+        { key: "]", code: "KeyG", ctrlKey: true, altKey: true, modifierAltGraph: true },
+        input,
+      );
+      expect(ev.getModifierState("AltGraph")).toBe(true);
+      expect(lens.isActive()).toBe(false);
+      expect(ev.defaultPrevented).toBe(false);
+    });
+
     it("does not hijack another letter at the C position as copy (Dvorak Cmd+J)", async () => {
       const lens = await setup();
       elementAt = makeEl("a");

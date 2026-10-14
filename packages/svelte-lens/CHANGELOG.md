@@ -1,5 +1,11 @@
 # @gear-null/svelte-lens
 
+## 1.0.2
+
+### Patch Changes
+
+- [#41](https://github.com/squid-quarters/svelte-lens/pull/41) [`e03ec17`](https://github.com/squid-quarters/svelte-lens/commit/e03ec17686168ee6699f4091910046ecca037a91) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Fix the context-menu Copy action (previously a no-op), stale element detection after fast pointer moves and scrolls, plugin hook error isolation, `dispose()` cleanup, and implement `activationMode: "hold"`. Harden the MCP server against aborted uploads, orphaned `--stdio` processes and abandoned sessions. Make `svelte-lens init` transforms safe for multi-line imports, `$$props`, existing imports and `<script module>` blocks, using Svelte's parser to find the layout's component script. Keep the context menu and selection label inside the viewport. Bump `@modelcontextprotocol/sdk` to ^1.32.1 for upstream security fixes.
+
 ## 1.0.1
 
 ### Patch Changes

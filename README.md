@@ -1,7 +1,7 @@
 # svelte-lens
 
 [![npm version](https://img.shields.io/npm/v/@gear-null/svelte-lens.svg)](https://www.npmjs.com/package/@gear-null/svelte-lens)
-[![CI](https://github.com/gear-null/svelte-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/gear-null/svelte-lens/actions/workflows/ci.yml)
+[![CI](https://github.com/squid-quarters/svelte-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/squid-quarters/svelte-lens/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Provenance](https://img.shields.io/badge/npm-provenance-blue)](https://docs.npmjs.com/generating-provenance-statements)
 
@@ -20,7 +20,7 @@ Inspired by [react-grab](https://github.com/aidenybai/react-grab) by [Aiden Bai]
 The copied context includes:
 
 - The element's rendered HTML preview
-- The component source stack (file path, line number, component name) resolved via Svelte 5's `__svelte_meta` through [element-source](https://github.com/nicolo-ribaudo/element-source)
+- The component source stack (file path, line number, component name) resolved via Svelte 5's `__svelte_meta` through [element-source](https://github.com/aidenybai/element-source)
 - Any additional context injected by plugins
 
 ## Install
@@ -31,7 +31,7 @@ npm install @gear-null/svelte-lens
 
 ## Quick start
 
-Add to your root layout — it auto-initializes in dev mode:
+Add to your root layout and call `init()` in dev mode:
 
 ```svelte
 <!-- +layout.svelte -->
@@ -41,7 +41,7 @@ Add to your root layout — it auto-initializes in dev mode:
 
   onMount(() => {
     if (dev) {
-      void import("@gear-null/svelte-lens");
+      void import("@gear-null/svelte-lens").then((m) => m.init());
     }
   });
 </script>
@@ -55,20 +55,38 @@ npx @gear-null/svelte-lens init
 
 ## MCP server
 
-Connect svelte-lens directly to your AI agent via the built-in MCP server:
+Connect svelte-lens to your AI agent via the built-in MCP server (the `svelte-lens-mcp` bin):
 
 ```json
 {
   "mcpServers": {
     "svelte-lens": {
       "command": "npx",
-      "args": ["-y", "@gear-null/svelte-lens", "--mcp"]
+      "args": ["-y", "-p", "@gear-null/svelte-lens", "svelte-lens-mcp", "--stdio"]
     }
   }
 }
 ```
 
-Works with Claude Code, Cursor, Windsurf, and any MCP-compatible agent.
+Works with Claude Code, Cursor, Windsurf, and any MCP-compatible agent. Without `--stdio`, the server runs in HTTP mode only, at `http://127.0.0.1:5174/mcp` (change the port with `--port`).
+
+The server exposes one tool, `get_element_context`, which returns the most recently submitted context once (it expires after 5 minutes). The browser lens does **not** send context to the server automatically — submit it with `POST http://127.0.0.1:5174/context` and a JSON body `{ "content": string[], "prompt"?: string }`. The endpoint only accepts requests from loopback origins (`localhost`, `127.x.x.x`, `::1`). For example, a plugin that forwards everything you copy:
+
+```ts
+api.registerPlugin({
+  name: "mcp-bridge",
+  hooks: {
+    transformCopyContent: (content) => {
+      void fetch("http://127.0.0.1:5174/context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: [content] }),
+      }).catch(() => {});
+      return content;
+    },
+  },
+});
+```
 
 ## Keyboard shortcuts
 
@@ -90,29 +108,25 @@ api.deactivate(); // Turn off and clean up
 api.setEnabled(false); // Disable entirely
 api.dispose(); // Tear down everything
 
-// Plugin system — 8 hooks
+// Plugin system — hooks live under `hooks`
 api.registerPlugin({
   name: "my-plugin",
-  onElementSelect: (ctx) => {
-    /* element was hovered */
-  },
-  transformCopyContent: (content) => {
-    // Modify what gets copied to clipboard
-    return content;
-  },
-  onAfterCopy: (content) => {
-    /* content was copied */
-  },
-  onCopyError: (err) => {
-    /* copy failed */
-  },
-  onContextMenu: (ctx, actions) => {
-    /* right-click menu */
+  hooks: {
+    onActivate: () => {},
+    onDeactivate: () => {},
+    onBeforeCopy: (elements) => {},
+    transformCopyContent: (content, elements) => {
+      // Modify what gets copied to clipboard
+      return content;
+    },
+    onAfterCopy: (elements, success) => {},
+    onCopyError: (error) => {},
+    onContextMenu: (element, position) => {},
   },
 });
 ```
 
-Available hooks: `onActivate`, `onDeactivate`, `onElementSelect`, `onBeforeCopy`, `transformCopyContent`, `onAfterCopy`, `onCopyError`, `onContextMenu`.
+Hooks go under `hooks` (or in the `{ hooks }` object returned from `setup(api)`). Available hooks: `onActivate`, `onDeactivate`, `onElementSelect`, `onBeforeCopy`, `transformCopyContent`, `onAfterCopy`, `onCopyError`, `onContextMenu`.
 
 Built-in plugins: `copyPlugin` (clipboard copy), `openPlugin` (open source in editor).
 
@@ -120,10 +134,10 @@ Built-in plugins: `copyPlugin` (clipboard copy), `openPlugin` (open source in ed
 
 - **Shadow DOM overlay** — isolated from your app's styles, zero CSS leaks
 - **Svelte 5 runes** — built with `$state`, `$derived`, `$props` throughout
-- **Source resolution** — uses `__svelte_meta` via [element-source](https://github.com/nicolo-ribaudo/element-source) to trace any element back to its component, file, and line
+- **Source resolution** — uses `__svelte_meta` via [element-source](https://github.com/aidenybai/element-source) to trace any element back to its component, file, and line
 - **Plugin system** — extend copy behavior, add context menu actions, or transform content before it reaches the clipboard
 - **CLI** — `npx @gear-null/svelte-lens init` auto-detects SvelteKit or Vite+Svelte and wires the import into your layout
-- **MCP server** — HTTP + stdio transport so AI agents can query the latest element context programmatically
+- **MCP server** — HTTP + stdio transport; agents can read the latest context POSTed to its `/context` endpoint
 
 ## Acknowledgements
 

@@ -13,6 +13,7 @@ npm install @gear-null/svelte-lens
 ```svelte
 <script>
   import { dev } from "$app/environment";
+  import { onMount } from "svelte";
   import { init } from "@gear-null/svelte-lens";
 
   onMount(() => {
@@ -38,22 +39,24 @@ For AI agent integration (Claude Code, Cursor, Windsurf):
   "mcpServers": {
     "svelte-lens": {
       "command": "npx",
-      "args": ["-y", "@gear-null/svelte-lens", "--mcp"]
+      "args": ["-y", "-p", "@gear-null/svelte-lens", "svelte-lens-mcp", "--stdio"]
     }
   }
 }
 ```
 
-Or run directly: `npx svelte-lens-mcp`
+Or run directly: `npx -y -p @gear-null/svelte-lens svelte-lens-mcp` (HTTP mode on `127.0.0.1:5174`; add `--stdio` for stdio transport).
+
+The lens does not send context to the MCP server automatically. Submit it with `POST http://127.0.0.1:5174/context` (JSON body `{ "content": string[], "prompt"?: string }`, loopback origins only), for example from a plugin's `transformCopyContent` hook. Agents read it with the `get_element_context` tool.
 
 ## Features
 
 - **Hover-to-select** — shadow-DOM overlay highlights any element
 - **Cmd/Ctrl+C to copy** — copies HTML preview + source stack to clipboard
-- **Source resolution** — uses `__svelte_meta` via [element-source](https://github.com/nicolo-ribaudo/element-source) to pinpoint component/file/line
+- **Source resolution** — uses `__svelte_meta` via [element-source](https://github.com/aidenybai/element-source) to pinpoint component/file/line
 - **Plugin system** — 8 hooks: `onActivate`, `onDeactivate`, `onElementSelect`, `onBeforeCopy`, `transformCopyContent`, `onAfterCopy`, `onCopyError`, `onContextMenu`
 - **CLI** — `npx @gear-null/svelte-lens init` to scaffold into SvelteKit or Vite-Svelte projects
-- **MCP server** — expose element context to AI coding agents
+- **MCP server** — expose context POSTed to `/context` to AI coding agents
 
 ## Activation
 
@@ -70,7 +73,7 @@ const api = init();
 
 api.activate();
 api.deactivate();
-api.registerPlugin({ name: "my-plugin", ... });
+api.registerPlugin({ name: "my-plugin", hooks: { ... } });
 api.setEnabled(false);
 api.dispose();
 ```

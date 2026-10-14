@@ -164,6 +164,76 @@ test.describe("svelte-lens E2E", () => {
     await expect(menu).toContainText("Copy");
   });
 
+  test("context menu Copy item copies the element and closes the menu", async ({ page }) => {
+    await page.waitForSelector("[data-svelte-lens]", { timeout: 5000 });
+
+    // Start from a known clipboard value so a no-op copy can't pass.
+    await page.evaluate(() => navigator.clipboard.writeText("sentinel"));
+
+    await page.keyboard.press("Meta+Alt+g");
+
+    const counter = page.locator("button.counter");
+    await counter.hover();
+    await expect(page.locator(".lens-label")).toBeVisible({ timeout: 3000 });
+
+    await counter.click({ button: "right" });
+    const menu = page.locator(".lens-menu");
+    await expect(menu).toBeVisible({ timeout: 3000 });
+
+    await menu.getByRole("menuitem", { name: /Copy/ }).click();
+
+    await expect(menu).toBeHidden({ timeout: 3000 });
+    await expect(page.locator(".lens-label")).toContainText("Copied", { timeout: 3000 });
+
+    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clipboardText).not.toBe("sentinel");
+    expect(clipboardText).toContain("button");
+  });
+
+  test("context menu with a wide action stays inside the viewport near the right edge", async ({
+    page,
+  }) => {
+    await page.waitForSelector("[data-svelte-lens]", { timeout: 5000 });
+    await page.evaluate(() => {
+      window.__SVELTE_LENS__!.registerPlugin({
+        name: "wide-action",
+        actions: [
+          {
+            id: "wide",
+            label: "Copy component source path",
+            shortcut: "Cmd+Shift+C",
+            onAction: () => {},
+          },
+        ],
+      });
+      const edge = document.createElement("div");
+      edge.id = "edge-target";
+      edge.style.cssText = "position:fixed;top:200px;right:0;width:20px;height:20px;";
+      document.body.appendChild(edge);
+    });
+
+    await page.keyboard.press("Meta+Alt+g");
+    const edge = page.locator("#edge-target");
+    await edge.hover();
+    await expect(page.locator(".lens-label")).toBeVisible({ timeout: 3000 });
+    await edge.click({ button: "right", position: { x: 15, y: 10 } });
+
+    const menu = page.locator(".lens-menu");
+    await expect(menu).toBeVisible({ timeout: 3000 });
+    const viewportWidth = page.viewportSize()!.width;
+    await expect
+      .poll(async () => {
+        const box = (await menu.boundingBox())!;
+        return box.x + box.width;
+      })
+      .toBeLessThanOrEqual(viewportWidth - 8 + 0.5);
+
+    // The wide label stays on one line rather than wrapping.
+    const item = menu.getByRole("menuitem", { name: /Copy component source path/ });
+    const labelBox = await item.locator("span").boundingBox();
+    expect(labelBox!.height).toBeLessThan(24);
+  });
+
   test("window.__SVELTE_LENS__ is available after init", async ({ page }) => {
     await page.waitForSelector("[data-svelte-lens]", { timeout: 5000 });
 

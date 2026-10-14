@@ -43,10 +43,10 @@ export const init = new Command("init")
       process.exit(1);
     }
 
-    if (project.hasSvelteLens && !opts.force) {
-      logger.success("svelte-lens is already installed.");
-      logger.log("Re-run with --force to reapply.");
-      process.exit(0);
+    if (project.hasLegacySvelteLens && !project.hasSvelteLens) {
+      logger.warn(
+        "Found deprecated `svelte-lens` dependency; svelte-lens now ships as `@gear-null/svelte-lens`. You can remove the old package.",
+      );
     }
 
     const result = previewTransform(project.projectRoot, project.framework, opts.force);
@@ -57,6 +57,10 @@ export const init = new Command("init")
 
     if (result.noChanges) {
       logger.success(result.message);
+      if (project.hasSvelteLens) {
+        logger.success("svelte-lens is already set up.");
+        return;
+      }
     } else {
       logger.info(result.message);
       logger.log(`  file: ${colors.dim(result.filePath)}`);
@@ -64,6 +68,11 @@ export const init = new Command("init")
     }
 
     if (!opts.yes && !result.noChanges) {
+      // prompts never settles on stdin EOF, so a non-TTY run would hang.
+      if (!process.stdin.isTTY) {
+        logger.error("Non-interactive shell detected. Re-run with --yes to apply these changes.");
+        process.exit(1);
+      }
       const { proceed } = await prompts({
         type: "confirm",
         name: "proceed",

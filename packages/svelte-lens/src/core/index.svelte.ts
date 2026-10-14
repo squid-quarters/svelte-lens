@@ -58,10 +58,32 @@ const createNoopApi = (): SvelteLensAPI => ({
   dispose: noop,
 });
 
-const isCopyKeyCombo = (event: KeyboardEvent): boolean => {
-  if (event.key !== "c" && event.key !== "C") return false;
-  return event.metaKey || event.ctrlKey;
+// Match the typed letter (case-insensitive, for Caps Lock). Fall back to the
+// physical key (code) only when key is not a plain letter, e.g. macOS
+// Option-modified output like "ç"/"©" or dead keys. Matching code
+// unconditionally would hijack other letters on non-QWERTY layouts (Dvorak
+// Cmd+Option+I sends code "KeyG"). Never fall back under AltGr: Windows reports
+// it as Ctrl+Alt, and AltGr+G types "]" on Czech/Slovak/Hungarian layouts.
+const matchesLetter = (event: KeyboardEvent, letter: string): boolean => {
+  const key = event.key?.toLowerCase() ?? "";
+  if (key === letter) return true;
+  return (
+    !/^[a-z]$/.test(key) &&
+    !event.getModifierState?.("AltGraph") &&
+    event.code === `Key${letter.toUpperCase()}`
+  );
 };
+
+// In hold mode the activation chord's Option stays held, and macOS reports
+// Cmd+Option+C as key "ç".
+const isCopyKeyCombo = (event: KeyboardEvent): boolean =>
+  matchesLetter(event, "c") && (event.metaKey || event.ctrlKey);
+
+const isDefaultActivationCombo = (event: KeyboardEvent): boolean =>
+  matchesLetter(event, "g") && (event.metaKey || event.ctrlKey) && event.altKey;
+
+type ModifierKey = "Meta" | "Control" | "Alt" | "Shift";
+const MODIFIER_KEYS = new Set<string>(["Meta", "Control", "Alt", "Shift"]);
 
 interface InitGuards {
   hasBeenInited: boolean;
@@ -94,16 +116,27 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   });
   const pluginRegistry = createPluginRegistry(initialOptions);
 
-  // Parse the activationKey option into a key-matcher function.
-  // Falls back to Cmd/Ctrl+Alt+G when no activationKey is configured.
-  const matchesActivationKey = parseActivationKey(initialOptions.activationKey);
-  const hasCustomActivationKey =
-    initialOptions.activationKey !== undefined &&
-    (typeof initialOptions.activationKey === "function" ||
-      (typeof initialOptions.activationKey === "string" &&
-        initialOptions.activationKey.trim() !== ""));
+  // Resolve the activationKey matcher from the live options so setOptions()
+  // and plugin options take effect. Falls back to Cmd/Ctrl+Alt+G when no
+  // activationKey is configured.
+  let cachedActivationKey: SettableOptions["activationKey"] | null = null;
+  let cachedActivationMatcher: ((event: KeyboardEvent) => boolean) | null = null;
+  const getActivationMatcher = (): ((event: KeyboardEvent) => boolean) => {
+    const activationKey = pluginRegistry.store.options.activationKey;
+    if (cachedActivationMatcher && activationKey === cachedActivationKey) {
+      return cachedActivationMatcher;
+    }
+    const isCustom =
+      typeof activationKey === "function" ||
+      (typeof activationKey === "string" && activationKey.trim() !== "");
+    cachedActivationKey = activationKey;
+    cachedActivationMatcher = isCustom
+      ? parseActivationKey(activationKey)
+      : isDefaultActivationCombo;
+    return cachedActivationMatcher;
+  };
 
-  const { root, shadowRoot, host } = mountRoot();
+  const { root, shadowRoot, destroy: destroyMountRoot } = mountRoot();
 
   const renderState = $state<{
     selectionVisible: boolean;
@@ -132,6 +165,11 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   });
 
   let lastDetectionAt = 0;
+  let trailingDetectTimer: ReturnType<typeof setTimeout> | null = null;
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
+  // The physical key that started a hold-mode activation, if any.
+  let holdKeyCode: string | null = null;
+  let holdModifiers: Record<ModifierKey, boolean> | null = null;
   let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
   let copyInProgress = false;
 
@@ -160,11 +198,35 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     updateSelectionFromElement(element);
   };
 
+  const clearTrailingDetect = (): void => {
+    if (trailingDetectTimer) {
+      clearTimeout(trailingDetectTimer);
+      trailingDetectTimer = null;
+    }
+  };
+
   const onPointerMove = (event: PointerEvent): void => {
-    if (!store.state.isActive) return;
+    // Track the pointer even while inactive so activation can detect at once.
     store.setPointer({ x: event.clientX, y: event.clientY });
+    if (!store.state.isActive) return;
+    // Freeze hover while the context menu is open so the highlight stays on
+    // the element the menu acts on.
+    if (renderState.contextMenuPosition) return;
     const now = performance.now();
-    if (now - lastDetectionAt < ELEMENT_DETECTION_THROTTLE_MS) return;
+    const elapsed = now - lastDetectionAt;
+    if (elapsed < ELEMENT_DETECTION_THROTTLE_MS) {
+      // Trailing edge: make sure the final pointer position is detected.
+      if (!trailingDetectTimer) {
+        trailingDetectTimer = setTimeout(() => {
+          trailingDetectTimer = null;
+          if (!store.state.isActive || renderState.contextMenuPosition) return;
+          lastDetectionAt = performance.now();
+          detectElement(store.state.pointer.x, store.state.pointer.y);
+        }, ELEMENT_DETECTION_THROTTLE_MS - elapsed);
+      }
+      return;
+    }
+    clearTrailingDetect();
     lastDetectionAt = now;
     detectElement(event.clientX, event.clientY);
   };
@@ -232,11 +294,16 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       return;
     }
 
-    if (isCopyKeyCombo(event) && store.state.isActive && store.state.detectedElement) {
-      event.preventDefault();
-      event.stopPropagation();
-      void performCopy(store.state.detectedElement);
-      return;
+    // Never take over native copy inside text fields.
+    if (isCopyKeyCombo(event) && store.state.isActive && !isKeyboardEventFromInput(event)) {
+      // While the context menu is open, copy the element it was opened for.
+      const target = renderState.actionContext?.element ?? store.state.detectedElement;
+      if (target) {
+        event.preventDefault();
+        event.stopPropagation();
+        void selectAndCopy(target);
+        return;
+      }
     }
 
     if (event.key === "Escape" && store.state.isActive) {
@@ -245,19 +312,78 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       return;
     }
 
-    // Use the parsed activationKey matcher if a custom key was configured,
-    // otherwise fall back to the default Cmd/Ctrl+Alt+G shortcut.
-    const isActivationKey = hasCustomActivationKey
-      ? matchesActivationKey(event)
-      : event.key === "g" && (event.metaKey || event.ctrlKey) && event.altKey;
-    if (isActivationKey) {
+    if (getActivationMatcher()(event)) {
+      // preventDefault before the repeat check so held-key repeats are still
+      // swallowed but don't re-toggle.
       event.preventDefault();
-      toggle();
+      if (event.repeat) return;
+      if (pluginRegistry.store.options.activationMode === "hold") startHold(event);
+      else toggle();
     }
+  };
+
+  const selectAndCopy = async (element: Element): Promise<void> => {
+    // A plugin returning true from onElementSelect handles the selection itself.
+    if (await pluginRegistry.hooks.onElementSelect(element)) return;
+    await performCopy(element);
+  };
+
+  const clearHold = (): void => {
+    if (holdTimer) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+    }
+    holdKeyCode = null;
+    holdModifiers = null;
+    store.releaseHold();
+  };
+
+  // Hold mode: activate once the key has been held for keyHoldDuration;
+  // releasing it (or any modifier held with it) deactivates.
+  const startHold = (event: KeyboardEvent): void => {
+    if (store.state.isActive || holdKeyCode !== null) return;
+    holdKeyCode = event.code || event.key;
+    holdModifiers = {
+      Meta: event.metaKey,
+      Control: event.ctrlKey,
+      Alt: event.altKey,
+      Shift: event.shiftKey,
+    };
+    store.startHold();
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      activate();
+    }, pluginRegistry.store.options.keyHoldDuration);
+  };
+
+  const endHold = (): void => {
+    if (holdKeyCode === null) return;
+    clearHold();
+    if (store.state.isActive) deactivate();
+  };
+
+  const onKeyUp = (event: KeyboardEvent): void => {
+    if (holdKeyCode === null) return;
+    const releasedHoldKey = (event.code || event.key) === holdKeyCode;
+    const releasedHoldModifier =
+      MODIFIER_KEYS.has(event.key) && holdModifiers?.[event.key as ModifierKey] === true;
+    if (releasedHoldKey || releasedHoldModifier) endHold();
   };
 
   const onContextMenuEvent = (event: MouseEvent): void => {
     if (!store.state.isActive) return;
+    // A right-click on the open menu itself keeps the menu as it is.
+    if (
+      event
+        .composedPath()
+        .some((node) => node instanceof Element && node.classList.contains("lens-menu"))
+    ) {
+      event.preventDefault();
+      return;
+    }
+    // Hover is frozen while a menu is open, so target what is under the
+    // right-click rather than the element the previous menu was opened for.
+    detectElement(event.clientX, event.clientY);
     if (!store.state.detectedElement) return;
     event.preventDefault();
     event.stopPropagation();
@@ -273,14 +399,10 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       lineNumber: source?.lineNumber ?? undefined,
       componentName: source?.componentName ?? undefined,
       tagName: getTagName(element),
-      hideContextMenu: () => {
-        renderState.contextMenuPosition = null;
-        renderState.actionContext = null;
-      },
-      cleanup: () => {
-        store.deactivate();
-        renderState.isActive = false;
-      },
+      // An action keeps the selection on its element so feedback such as
+      // "Copied" lands on it; the next pointer move re-detects.
+      hideContextMenu: () => closeContextMenu(),
+      cleanup: () => deactivate(),
     };
     renderState.contextMenuPosition = position;
     renderState.actionContext = ctx;
@@ -288,15 +410,24 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     pluginRegistry.hooks.onContextMenu(element, position);
   };
 
-  const dismissContextMenu = (): void => {
+  const closeContextMenu = (): void => {
     renderState.contextMenuPosition = null;
     renderState.actionContext = null;
+  };
+
+  const dismissContextMenu = (): void => {
+    closeContextMenu();
+    // Hover was frozen while the menu was open; catch up with the pointer.
+    if (store.state.isActive) detectElement(store.state.pointer.x, store.state.pointer.y);
   };
 
   const activate = (): void => {
     if (!renderState.enabled) return;
     store.activate();
     renderState.isActive = true;
+    // Detect under the current pointer so a keyboard activation is usable
+    // before the mouse moves.
+    detectElement(store.state.pointer.x, store.state.pointer.y);
     pluginRegistry.hooks.onActivate();
   };
 
@@ -315,6 +446,8 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       clearTimeout(copyResetTimer);
       copyResetTimer = null;
     }
+    clearTrailingDetect();
+    clearHold();
     pluginRegistry.hooks.onDeactivate();
   };
 
@@ -374,6 +507,8 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   const installListeners = (): void => {
     document.addEventListener("pointermove", onPointerMove, true);
     document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", endHold);
     document.addEventListener("contextmenu", onContextMenuEvent, true);
     window.addEventListener("scroll", refreshSelectionBounds, true);
     window.addEventListener("resize", refreshSelectionBounds);
@@ -382,12 +517,18 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   const uninstallListeners = (): void => {
     document.removeEventListener("pointermove", onPointerMove, true);
     document.removeEventListener("keydown", onKeyDown, true);
+    document.removeEventListener("keyup", onKeyUp, true);
+    window.removeEventListener("blur", endHold);
     document.removeEventListener("contextmenu", onContextMenuEvent, true);
     window.removeEventListener("scroll", refreshSelectionBounds, true);
     window.removeEventListener("resize", refreshSelectionBounds);
   };
 
   const refreshSelectionBounds = (): void => {
+    // Re-detect under the stationary pointer: scrolling moves content under it.
+    if (store.state.isActive && !renderState.contextMenuPosition) {
+      detectElement(store.state.pointer.x, store.state.pointer.y);
+    }
     if (!store.state.detectedElement) return;
     if (!store.state.detectedElement.isConnected) {
       store.setDetectedElement(null);
@@ -429,14 +570,19 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     unregisterPlugin: (name: string) => pluginRegistry.unregister(name),
     getPlugins: () => pluginRegistry.getPluginNames(),
     dispose: () => {
+      if (store.state.isActive) deactivate();
+      // Unregistering runs each plugin's setup() cleanup.
+      for (const name of pluginRegistry.getPluginNames()) pluginRegistry.unregister(name);
       uninstallListeners();
       if (copyResetTimer) {
         clearTimeout(copyResetTimer);
         copyResetTimer = null;
       }
+      clearTrailingDetect();
+      clearHold();
       if (mounted) void unmount(mounted);
       mounted = null;
-      host.remove();
+      destroyMountRoot();
       guards.hasBeenInited = false;
       if (typeof window !== "undefined") {
         delete window.__SVELTE_LENS__;

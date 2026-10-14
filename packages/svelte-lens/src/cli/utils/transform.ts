@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { Framework } from "./detect.js";
 import { SVELTEKIT_LAYOUT_BLOCK, VITE_SVELTE_IMPORT } from "./templates.js";
@@ -36,71 +37,135 @@ const findFirst = (projectRoot: string, candidates: string[]): string | null => 
 };
 
 const fileContainsLensImport = (content: string): boolean =>
-  /["'`](?:@gear-null\/svelte-lens|svelte-lens)["'`]/.test(content);
+  /["'`]@gear-null\/svelte-lens["'`]/.test(content);
 
+// Releases before the rename wired `import("svelte-lens")`; the unscoped
+// package is deprecated, so point those specifiers at the scoped one.
+const LEGACY_SPECIFIER_RE =
+  /(\bimport\s*\(\s*|\bfrom\s*|\bimport\s*)(["'`])svelte-lens(\/[^"'`]*)?\2/g;
+
+const rewriteLegacyImports = (content: string): string =>
+  content.replace(
+    LEGACY_SPECIFIER_RE,
+    (_match, prefix: string, quote: string, subpath = "") =>
+      `${prefix}${quote}@gear-null/svelte-lens${subpath}${quote}`,
+  );
+
+// Aliased bindings so the merged code can't collide with (or depend on) the
+// user's own imports of `dev` / `onMount`. Duplicate imports are valid ES.
 const LENS_ONMOUNT_CODE = `
-  onMount(() => {
-    if (dev) import("@gear-null/svelte-lens").then((m) => m.init());
+  __lensOnMount(() => {
+    if (__lensDev) import("@gear-null/svelte-lens").then((m) => m.init());
   });`;
 
-const LENS_SCRIPT_IMPORTS = {
-  dev: `import { dev } from "$app/environment";`,
-  onMount: `import { onMount } from "svelte";`,
-};
+const LENS_SCRIPT_IMPORTS = [
+  `  import { dev as __lensDev } from "$app/environment";`,
+  `  import { onMount as __lensOnMount } from "svelte";`,
+];
 
-const mergeIntoExistingScript = (content: string): string => {
-  const scriptMatch = content.match(/(<script[^>]*>)([\s\S]*?)(<\/script>)/);
-  if (!scriptMatch) return content;
+interface ScriptBlock {
+  start: number;
+  end: number;
+  openTag: string;
+  body: string;
+  attrs: string;
+}
 
-  const openTag = scriptMatch[1] ?? "<script>";
-  const scriptBody = scriptMatch[2] ?? "";
-  const closeTag = scriptMatch[3] ?? "</script>";
+interface SvelteScriptNode {
+  start: number;
+  end: number;
+  content: { start: number; end: number };
+}
 
-  // If already has lens import, return unchanged
-  if (fileContainsLensImport(scriptBody)) return content;
+type SvelteParse = (
+  source: string,
+  options: { modern: true },
+) => { instance: SvelteScriptNode | null; module: SvelteScriptNode | null };
 
-  const importsToAdd: string[] = [];
-  const bodyLines: string[] = [];
-
-  if (
-    !scriptBody.includes('from "$app/environment"') &&
-    !scriptBody.includes("from '$app/environment'")
-  ) {
-    importsToAdd.push(LENS_SCRIPT_IMPORTS.dev);
-  }
-  if (!scriptBody.includes('from "svelte"') && !scriptBody.includes("from 'svelte'")) {
-    importsToAdd.push(LENS_SCRIPT_IMPORTS.onMount);
-  }
-  bodyLines.push(LENS_ONMOUNT_CODE.trim());
-
-  // Build the new script body
-  const existingLines = scriptBody.trim().split("\n");
-  // Find where imports end and code begins
-  let importEndIndex = 0;
-  for (let i = 0; i < existingLines.length; i++) {
-    const line = existingLines[i];
-    if (line && !line.trim().startsWith("import ")) {
-      importEndIndex = i;
-      break;
+// Svelte's own parser decides which <script> is the component's: regexes can't
+// tell a real script from `<script` text in comments, <svelte:head>, or markup
+// expressions like {@html "<script>…</script>"}. Prefer the project's svelte,
+// falling back to the one resolvable from this package (peer dependency).
+const loadSvelteParse = (projectRoot: string): SvelteParse | null => {
+  for (const from of [join(projectRoot, "package.json"), import.meta.url]) {
+    try {
+      return (createRequire(from)("svelte/compiler") as { parse: SvelteParse }).parse;
+    } catch {
+      // try the next location
     }
-    if (i === existingLines.length - 1) importEndIndex = i + 1;
   }
-
-  const existingImports = existingLines.slice(0, importEndIndex);
-  const existingBody = existingLines.slice(importEndIndex);
-
-  const newImports = [...existingImports, ...importsToAdd];
-  const newBody = [...bodyLines, ...existingBody];
-
-  const newScriptBody = [...newImports, "", ...newBody].join("\n");
-
-  return content.replace(
-    /<script[^>]*>[\s\S]*?<\/script>/,
-    `${openTag}\n${newScriptBody}\n  ${closeTag}`,
-  );
+  return null;
 };
 
-const transformSvelteKit = (projectRoot: string, force: boolean): TransformResult => {
+const toBlock = (content: string, node: SvelteScriptNode | null): ScriptBlock | undefined => {
+  if (!node) return undefined;
+  const openTag = content.slice(node.start, node.content.start);
+  return {
+    start: node.start,
+    end: node.end,
+    openTag,
+    body: content.slice(node.content.start, node.content.end),
+    attrs: openTag.slice("<script".length, -1),
+  };
+};
+
+// Svelte parses <style> bodies as plain CSS regardless of lang, so SCSS
+// (`//` comments, `$vars`) throws. Blank the bodies to equal-length whitespace
+// (newlines kept) so AST offsets still index into the original content. Spans
+// containing `<script` are left alone: blanking them could hide a real script.
+const blankStyleBodies = (content: string): string =>
+  content.replace(
+    /(<style\b(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?)(<\/style\s*>)/gi,
+    (match, open: string, body: string, close: string) =>
+      /<script\b/i.test(body) ? match : open + body.replace(/[^\n]/g, " ") + close,
+  );
+
+// Only retry with blanked styles when the plain parse fails, so layouts that
+// already parse are handled exactly as before.
+const parseLayout = (content: string, parse: SvelteParse): ReturnType<SvelteParse> => {
+  try {
+    return parse(content, { modern: true });
+  } catch (error) {
+    const blanked = blankStyleBodies(content);
+    if (blanked === content) throw error;
+    return parse(blanked, { modern: true });
+  }
+};
+
+// Returns null when the file has no component script to merge into.
+const mergeIntoExistingScript = (content: string, parse: SvelteParse): string | null => {
+  const ast = parseLayout(content, parse);
+  const instance = toBlock(content, ast.instance);
+  const module = toBlock(content, ast.module);
+
+  if (!instance) {
+    if (!module) return null;
+    // Only a module script: add a new instance script after it, same lang.
+    const lang = module.attrs.match(/\blang\s*=\s*["'][^"']*["']/)?.[0];
+    const block = [
+      lang ? `<script ${lang}>` : "<script>",
+      ...LENS_SCRIPT_IMPORTS,
+      LENS_ONMOUNT_CODE,
+      "</script>",
+    ].join("\n");
+    return `${content.slice(0, module.end)}\n\n${block}${content.slice(module.end)}`;
+  }
+
+  // Imports are hoisted, so they can go right after the open tag; the existing
+  // statements are kept as-is (no line-based import parsing).
+  const body = instance.body.replace(/\s*$/, "");
+  const newBlock = [
+    instance.openTag,
+    ...LENS_SCRIPT_IMPORTS,
+    `${body.startsWith("\n") ? body.slice(1) : body}\n${LENS_ONMOUNT_CODE}`,
+    "</script>",
+  ].join("\n");
+
+  // Splice by index rather than String.replace so `$$props` etc. survive.
+  return content.slice(0, instance.start) + newBlock + content.slice(instance.end);
+};
+
+const transformSvelteKit = (projectRoot: string): TransformResult => {
   const layoutPath = findFirst(projectRoot, ROOT_LAYOUT_PATHS);
 
   if (!layoutPath || !layoutPath.endsWith(".svelte")) {
@@ -115,7 +180,18 @@ const transformSvelteKit = (projectRoot: string, force: boolean): TransformResul
   }
 
   const originalContent = readFileSync(layoutPath, "utf-8");
-  if (fileContainsLensImport(originalContent) && !force) {
+  const migrated = rewriteLegacyImports(originalContent);
+  if (migrated !== originalContent) {
+    return {
+      success: true,
+      filePath: layoutPath,
+      message: "Rewrites deprecated `svelte-lens` import in layout to `@gear-null/svelte-lens`",
+      originalContent,
+      newContent: migrated,
+    };
+  }
+
+  if (fileContainsLensImport(originalContent)) {
     return {
       success: true,
       filePath: layoutPath,
@@ -124,19 +200,29 @@ const transformSvelteKit = (projectRoot: string, force: boolean): TransformResul
     };
   }
 
-  // If layout has an existing <script> block, merge into it
-  if (/<script[^>]*>/.test(originalContent)) {
-    const newContent = mergeIntoExistingScript(originalContent);
+  const parse = loadSvelteParse(projectRoot);
+  let merged: string | null;
+  try {
+    if (!parse) throw new Error("svelte/compiler not found");
+    merged = mergeIntoExistingScript(originalContent, parse);
+  } catch {
+    return {
+      success: false,
+      filePath: layoutPath,
+      message: `Could not parse ${layoutPath}. Add this to your root layout yourself:\n\n${SVELTEKIT_LAYOUT_BLOCK}`,
+    };
+  }
+  if (merged !== null) {
     return {
       success: true,
       filePath: layoutPath,
       message: "Merges svelte-lens dev import into existing layout script",
       originalContent,
-      newContent,
+      newContent: merged,
     };
   }
 
-  // No existing script — prepend the full block
+  // No component script — prepend the full block
   const newContent = `${SVELTEKIT_LAYOUT_BLOCK}\n\n${originalContent}`;
 
   return {
@@ -148,7 +234,7 @@ const transformSvelteKit = (projectRoot: string, force: boolean): TransformResul
   };
 };
 
-const transformViteSvelte = (projectRoot: string, force: boolean): TransformResult => {
+const transformViteSvelte = (projectRoot: string): TransformResult => {
   const entryPath = findFirst(projectRoot, VITE_ENTRY_PATHS);
 
   if (!entryPath) {
@@ -161,7 +247,18 @@ const transformViteSvelte = (projectRoot: string, force: boolean): TransformResu
   }
 
   const originalContent = readFileSync(entryPath, "utf-8");
-  if (fileContainsLensImport(originalContent) && !force) {
+  const migrated = rewriteLegacyImports(originalContent);
+  if (migrated !== originalContent) {
+    return {
+      success: true,
+      filePath: entryPath,
+      message: "Rewrites deprecated `svelte-lens` import in entry to `@gear-null/svelte-lens`",
+      originalContent,
+      newContent: migrated,
+    };
+  }
+
+  if (fileContainsLensImport(originalContent)) {
     return {
       success: true,
       filePath: entryPath,
@@ -184,10 +281,11 @@ const transformViteSvelte = (projectRoot: string, force: boolean): TransformResu
 export const previewTransform = (
   projectRoot: string,
   framework: Framework,
-  force = false,
+  // Transforms are idempotent, so --force has nothing extra to overwrite.
+  _force = false,
 ): TransformResult => {
-  if (framework === "sveltekit") return transformSvelteKit(projectRoot, force);
-  if (framework === "vite-svelte") return transformViteSvelte(projectRoot, force);
+  if (framework === "sveltekit") return transformSvelteKit(projectRoot);
+  if (framework === "vite-svelte") return transformViteSvelte(projectRoot);
   return {
     success: false,
     filePath: "",

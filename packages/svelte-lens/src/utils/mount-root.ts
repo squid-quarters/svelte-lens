@@ -4,6 +4,8 @@ interface MountRootResult {
   root: HTMLDivElement;
   host: HTMLElement;
   shadowRoot: ShadowRoot;
+  // Cancels any pending attach and removes the host.
+  destroy: () => void;
 }
 
 const attachToBody = (host: HTMLElement): void => {
@@ -17,17 +19,19 @@ const attachToBody = (host: HTMLElement): void => {
   document.body.appendChild(host);
 };
 
-const scheduleAttach = (host: HTMLElement): void => {
-  if (typeof document === "undefined") return;
+// Returns a function that cancels a still-pending DOMContentLoaded attach.
+const scheduleAttach = (host: HTMLElement): (() => void) => {
+  if (typeof document === "undefined") return () => {};
   if (document.body) {
     attachToBody(host);
-    return;
+    return () => {};
   }
   const onReady = (): void => {
     document.removeEventListener("DOMContentLoaded", onReady);
     attachToBody(host);
   };
   document.addEventListener("DOMContentLoaded", onReady, { once: true });
+  return () => document.removeEventListener("DOMContentLoaded", onReady);
 };
 
 export const mountRoot = (): MountRootResult => {
@@ -35,7 +39,12 @@ export const mountRoot = (): MountRootResult => {
   for (const existingHost of existing) {
     const existingRoot = existingHost.shadowRoot?.querySelector(`[${HOST_ATTRIBUTE}]`);
     if (existingRoot instanceof HTMLDivElement && existingHost.shadowRoot) {
-      return { root: existingRoot, host: existingHost, shadowRoot: existingHost.shadowRoot };
+      return {
+        root: existingRoot,
+        host: existingHost,
+        shadowRoot: existingHost.shadowRoot,
+        destroy: () => existingHost.remove(),
+      };
     }
     existingHost.remove();
   }
@@ -54,9 +63,19 @@ export const mountRoot = (): MountRootResult => {
   root.setAttribute(HOST_ATTRIBUTE, "true");
   shadowRoot.appendChild(root);
 
-  scheduleAttach(host);
+  let destroyed = false;
+  const cancelReady = scheduleAttach(host);
 
-  setTimeout(() => attachToBody(host), MOUNT_ROOT_RECHECK_DELAY_MS);
+  const recheckTimer = setTimeout(() => {
+    if (!destroyed) attachToBody(host);
+  }, MOUNT_ROOT_RECHECK_DELAY_MS);
 
-  return { root, host, shadowRoot };
+  const destroy = (): void => {
+    destroyed = true;
+    clearTimeout(recheckTimer);
+    cancelReady();
+    host.remove();
+  };
+
+  return { root, host, shadowRoot, destroy };
 };

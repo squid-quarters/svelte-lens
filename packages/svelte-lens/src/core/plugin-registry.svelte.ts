@@ -59,24 +59,35 @@ const mergeTheme = (
   };
 };
 
+// Drop keys whose value is undefined so unset options don't mask the defaults
+// when spread over them.
+const definedOnly = <T extends object>(options: T | undefined): Partial<T> =>
+  Object.fromEntries(
+    Object.entries(options ?? {}).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+
+const reportHookError = (pluginName: string, hookName: string, error: unknown): void => {
+  console.error(`[svelte-lens] plugin "${pluginName}" hook "${hookName}" threw`, error);
+};
+
 export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
   const plugins = new Map<string, RegisteredPlugin>();
   const directOptionOverrides: Partial<ResolvedOptions> = {};
 
   const store = $state<PluginStoreState>({
     theme: DEFAULT_THEME,
-    options: { ...DEFAULT_OPTIONS, ...initialOptions },
+    options: { ...DEFAULT_OPTIONS, ...definedOnly(initialOptions) },
     actions: [],
   });
 
   const recompute = (): void => {
     let mergedTheme: Required<Theme> = DEFAULT_THEME;
-    let mergedOptions: ResolvedOptions = { ...DEFAULT_OPTIONS, ...initialOptions };
+    let mergedOptions: ResolvedOptions = { ...DEFAULT_OPTIONS, ...definedOnly(initialOptions) };
     const mergedActions: ContextMenuAction[] = [];
 
     for (const { config } of plugins.values()) {
       if (config.theme) mergedTheme = mergeTheme(mergedTheme, config.theme);
-      if (config.options) mergedOptions = { ...mergedOptions, ...config.options };
+      if (config.options) mergedOptions = { ...mergedOptions, ...definedOnly(config.options) };
       if (config.actions) mergedActions.push(...config.actions);
     }
 
@@ -119,35 +130,54 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
   const unregister = (name: string): void => {
     const registered = plugins.get(name);
     if (!registered) return;
-    registered.config.cleanup?.();
+    // Isolated so a throwing cleanup still unregisters the plugin and cannot
+    // abort the caller's teardown (e.g. dispose()).
+    try {
+      registered.config.cleanup?.();
+    } catch (error) {
+      reportHookError(name, "cleanup", error);
+    }
     plugins.delete(name);
     recompute();
   };
 
   const getPluginNames = (): string[] => Array.from(plugins.keys());
 
+  // Each plugin is isolated so one throwing hook cannot break the others or
+  // the caller's state transition.
   const callHook = <K extends keyof PluginHooks>(
     hookName: K,
     ...args: Parameters<NonNullable<PluginHooks[K]>>
   ): void => {
-    for (const { config } of plugins.values()) {
+    for (const [name, { config }] of plugins) {
       const hook = config.hooks?.[hookName] as
-        | ((...hookArgs: Parameters<NonNullable<PluginHooks[K]>>) => void)
-        | undefined;
-      hook?.(...args);
+        ((...hookArgs: Parameters<NonNullable<PluginHooks[K]>>) => void) | undefined;
+      if (!hook) continue;
+      try {
+        hook(...args);
+      } catch (error) {
+        reportHookError(name, hookName, error);
+      }
     }
   };
 
-  const callHookWithIntercept = <K extends keyof PluginHooks>(
+  const callHookWithIntercept = async <K extends keyof PluginHooks>(
     hookName: K,
     ...args: Parameters<NonNullable<PluginHooks[K]>>
-  ): boolean => {
+  ): Promise<boolean> => {
     let intercepted = false;
-    for (const { config } of plugins.values()) {
+    for (const [name, { config }] of plugins) {
       const hook = config.hooks?.[hookName] as
-        | ((...hookArgs: Parameters<NonNullable<PluginHooks[K]>>) => boolean | void)
+        | ((
+            ...hookArgs: Parameters<NonNullable<PluginHooks[K]>>
+          ) => boolean | void | Promise<boolean>)
         | undefined;
-      if (hook?.(...args) === true) intercepted = true;
+      if (!hook) continue;
+      try {
+        if ((await hook(...args)) === true) intercepted = true;
+      } catch (error) {
+        reportHookError(name, hookName, error);
+      }
     }
     return intercepted;
   };

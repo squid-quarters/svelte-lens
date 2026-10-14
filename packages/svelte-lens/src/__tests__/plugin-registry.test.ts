@@ -154,4 +154,53 @@ describe("createPluginRegistry", () => {
     registry.hooks.onCopyError(err);
     expect(onError).toHaveBeenCalledWith(err);
   });
+
+  it("ignores undefined initial options so defaults survive", () => {
+    const registry = createPluginRegistry({
+      allowActivationInsideInput: undefined,
+      activationMode: undefined,
+      keyHoldDuration: undefined,
+    });
+    expect(registry.store.options.allowActivationInsideInput).toBe(true);
+    expect(registry.store.options.activationMode).toBe("toggle");
+    expect(registry.store.options.keyHoldDuration).toBe(100);
+    registry.register({ name: "p", options: { allowActivationInsideInput: undefined } }, noopApi);
+    expect(registry.store.options.allowActivationInsideInput).toBe(true);
+  });
+
+  it("isolates a throwing hook from other plugins and the caller", () => {
+    const registry = createPluginRegistry();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onActivate = vi.fn();
+    registry.register(
+      {
+        name: "bad",
+        hooks: {
+          onActivate: () => {
+            throw new Error("boom");
+          },
+        },
+      },
+      noopApi,
+    );
+    registry.register({ name: "good", hooks: { onActivate } }, noopApi);
+    expect(() => registry.hooks.onActivate()).not.toThrow();
+    expect(onActivate).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("onElementSelect resolves true when a sync or async hook intercepts", async () => {
+    const sync = createPluginRegistry();
+    sync.register({ name: "s", hooks: { onElementSelect: () => true } }, noopApi);
+    await expect(sync.hooks.onElementSelect(document.body)).resolves.toBe(true);
+
+    const async = createPluginRegistry();
+    async.register({ name: "a", hooks: { onElementSelect: async () => true } }, noopApi);
+    await expect(async.hooks.onElementSelect(document.body)).resolves.toBe(true);
+
+    const none = createPluginRegistry();
+    none.register({ name: "n", hooks: { onElementSelect: () => {} } }, noopApi);
+    await expect(none.hooks.onElementSelect(document.body)).resolves.toBe(false);
+  });
 });

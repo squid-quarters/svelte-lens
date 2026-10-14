@@ -100,6 +100,42 @@ describe("core/index.svelte.ts — init()", () => {
     expect(hosts.length).toBe(0);
   });
 
+  it("dispose completes teardown when a plugin cleanup throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { init } = await import("../core/index.svelte.js");
+    const api = init();
+    api.registerPlugin({
+      name: "bad",
+      setup: () => ({
+        cleanup: () => {
+          throw new Error("boom");
+        },
+      }),
+    });
+
+    expect(() => api.dispose()).not.toThrow();
+    cleanup = null;
+
+    expect(errorSpy).toHaveBeenCalled();
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(0);
+    // The old instance's activation listener is gone.
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "g",
+        metaKey: true,
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(api.isActive()).toBe(false);
+
+    // The guard was reset, so a fresh init() is fully functional.
+    const next = init();
+    cleanup = next.dispose;
+    expect(next.isEnabled()).toBe(true);
+  });
+
   it("dispose clears window.__SVELTE_LENS__ when set", async () => {
     const { init } = await import("../core/index.svelte.js");
     const api = init();

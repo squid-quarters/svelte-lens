@@ -7,6 +7,10 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    # Only widen ranges when the new version falls outside them. The default
+    # "increase" also raises peerDependencies floors (svelte), which would
+    # silently drop support for consumers' older versions in a patch release.
+    versioning-strategy: increase-if-necessary
     groups:
       # Group all dev tooling updates into one PR to reduce noise
       dev-dependencies:
@@ -20,8 +24,14 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    # @types/node tracks the minimum supported Node (engines: >=20), not the
+    # latest release — newer majors would type-check APIs absent at runtime.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    # include: scope yields "chore(deps): …" / "chore(deps-dev): …"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
     labels:
       - "dependencies"
@@ -37,6 +47,10 @@ updates:
       github-actions:
         patterns:
           - "*"
+    # changesets/action v2 requires Changesets CLI v3; migrate both together.
+    ignore:
+      - dependency-name: "changesets/action"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(actions)"
     labels:

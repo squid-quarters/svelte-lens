@@ -99,8 +99,24 @@ describe("package tarball validation", () => {
     expect(pkgJson.license).toBe("MIT");
   });
 
-  it("package.json has repository.url pointing to gear-null/svelte-lens", () => {
-    expect(pkgJson.repository?.url).toContain("gear-null/svelte-lens");
+  // The repo moved to squid-quarters; npm rejects provenance publishes whose
+  // repository.url does not match the building repository (E422).
+  it("package.json repository metadata points to squid-quarters/svelte-lens", () => {
+    expect(pkgJson.repository?.url).toBe("git+https://github.com/squid-quarters/svelte-lens.git");
+    expect(pkgJson.homepage).toContain("github.com/squid-quarters/svelte-lens");
+    expect(pkgJson.bugs?.url).toContain("github.com/squid-quarters/svelte-lens");
+  });
+
+  // `npx -y @gear-null/svelte-lens` runs the `svelte-lens` init CLI, which has
+  // no --mcp flag; MCP clients must launch the `svelte-lens-mcp` bin in stdio mode.
+  it("README MCP config launches the svelte-lens-mcp bin over stdio", () => {
+    const readme = readFileSync(resolve(pkgRoot, "README.md"), "utf8");
+    expect(readme).toContain(
+      '"args": ["-y", "-p", "@gear-null/svelte-lens", "svelte-lens-mcp", "--stdio"]',
+    );
+    expect(readme).not.toContain('"--mcp"');
+    expect(readme).not.toMatch(/npx svelte-lens-mcp/);
+    expect(pkgJson.bin?.["svelte-lens-mcp"]).toBe("./bin/mcp.js");
   });
 
   it("has no workspace: protocol in dependencies", () => {

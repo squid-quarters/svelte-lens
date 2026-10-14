@@ -42,4 +42,12 @@ describe("mountRoot", () => {
       host.remove();
     }, 100);
   });
+
+  it("destroy removes the host and cancels the pending re-attach", async () => {
+    const { host, destroy } = mountRoot();
+    destroy();
+    expect(document.body.contains(host)).toBe(false);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(document.body.contains(host)).toBe(false);
+  });
 });

@@ -32,15 +32,14 @@ const mergeLayout = (content: string): string => {
 const scripts = (content: string): string[] =>
   [...content.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "");
 
-const LENS_IMPORTS = `  import { dev as __lensDev } from "$app/environment";
-  import { onMount as __lensOnMount } from "svelte";
+const LENS_IMPORTS = `  import { onMount as __lensOnMount } from "svelte";
 `;
 
-const expectWired = (script: string) => {
-  expect(script).toContain('import { dev as __lensDev } from "$app/environment";');
-  expect(script).toContain('import { onMount as __lensOnMount } from "svelte";');
+const expectWired = (script: string, indent = "  ") => {
+  expect(script).not.toContain("__lensDev");
+  expect(script).toContain(`${indent}import { onMount as __lensOnMount } from "svelte";`);
   expect(script).toContain(
-    '__lensOnMount(() => {\n    if (__lensDev) import("@gear-null/svelte-lens")',
+    `${indent}__lensOnMount(() => {\n${indent}${indent}if (import.meta.env.DEV) import("@gear-null/svelte-lens")`,
   );
 };
 
@@ -70,7 +69,7 @@ describe("previewTransform (sveltekit merge)", () => {
     expect(out.endsWith("</script>\n\n{@render children()}\n")).toBe(true);
   });
 
-  it("imports its own bindings when svelte / $app/environment are already imported", () => {
+  it("imports its own bindings when svelte / $app/* are already imported", () => {
     const out = mergeLayout(`<script>
   import { browser } from "$app/environment";
   import { tick } from "svelte";
@@ -82,7 +81,7 @@ describe("previewTransform (sveltekit merge)", () => {
     expectWired(script);
   });
 
-  it("does not collide with the user's own dev / onMount imports", () => {
+  it("does not collide with the user's own onMount import", () => {
     const out = mergeLayout(`<script>
   import { dev } from "$app/environment";
   import { onMount } from "svelte";
@@ -287,6 +286,57 @@ ${style}`);
     expect(second.noChanges).toBe(true);
     applyTransform(second);
     expect(readFileSync(join(root, "src/routes/+layout.svelte"), "utf-8")).toBe(once);
+  });
+
+  it("matches the tab indentation of an sv create layout", () => {
+    const input = `<script lang="ts">
+\timport favicon from '$lib/assets/favicon.svg';
+
+\tlet { children } = $props();
+</script>
+
+{@render children()}
+`;
+    const out = mergeLayout(input);
+    const script = scripts(out)[0] ?? "";
+    expectWired(script, "\t");
+    expect(script).not.toMatch(/^ +\S/m);
+    expect(() => compile(out, { filename: "+layout.svelte", runes: true })).not.toThrow();
+  });
+
+  it("matches the file's indentation when prepending a script block", () => {
+    const out = mergeLayout("<svelte:head>\n\t<title>x</title>\n</svelte:head>\n");
+    expect(scripts(out)[0]).not.toMatch(/^ +\S/m);
+    expect(scripts(out)[0]).toContain(
+      '\t\tif (import.meta.env.DEV) import("@gear-null/svelte-lens")',
+    );
+  });
+
+  it("treats a layout wired the old $app/environment way as already set up", () => {
+    writeLayout(`<script>
+  import { dev as __lensDev } from "$app/environment";
+  import { onMount as __lensOnMount } from "svelte";
+  let { children } = $props();
+
+  __lensOnMount(() => {
+    if (__lensDev) import("@gear-null/svelte-lens").then((m) => m.init());
+  });
+</script>
+
+{@render children()}
+`);
+    expect(previewTransform(root, "sveltekit").noChanges).toBe(true);
+  });
+
+  it("creates a complete runes-mode layout that renders its children", () => {
+    const result = previewTransform(root, "sveltekit");
+    expect(result.originalContent).toBe("");
+    const out = result.newContent ?? "";
+    expect(out).toContain("{@render children()}");
+    expect(out).toContain("if (import.meta.env.DEV)");
+    expect(out).not.toContain("$app/environment");
+    const { warnings } = compile(out, { filename: "+layout.svelte", runes: true });
+    expect(warnings).toEqual([]);
   });
 });
 

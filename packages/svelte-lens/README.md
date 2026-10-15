@@ -10,17 +10,23 @@ npm install @gear-null/svelte-lens
 
 ## Quick Start
 
+In your root layout (`src/routes/+layout.svelte`):
+
 ```svelte
 <script>
-  import { dev } from "$app/environment";
   import { onMount } from "svelte";
-  import { init } from "@gear-null/svelte-lens";
+
+  let { children } = $props();
 
   onMount(() => {
-    if (dev) init();
+    if (import.meta.env.DEV) import("@gear-null/svelte-lens").then((m) => m.init());
   });
 </script>
+
+{@render children()}
 ```
+
+`import.meta.env.DEV` is replaced at build time, so production builds drop svelte-lens entirely.
 
 ## CLI
 

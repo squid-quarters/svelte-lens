@@ -1,4 +1,4 @@
-import { mount, unmount } from "svelte";
+import { flushSync, mount, unmount } from "svelte";
 import Renderer from "../components/Renderer.svelte";
 import type {
   ActionContext,
@@ -23,6 +23,7 @@ import { createElementBounds } from "../utils/create-element-bounds.js";
 import { getElementAtPosition } from "../utils/get-element-at-position.js";
 import { isMountHost } from "../utils/is-mount-host.js";
 import { isKeyboardEventFromInput } from "../utils/is-keyboard-event-from-input.js";
+import { isActionEnabled } from "../utils/is-action-enabled.js";
 import { copyToClipboard } from "../utils/copy-to-clipboard.js";
 import { getTagName } from "../utils/get-tag-name.js";
 import { formatHtmlPreview } from "../utils/format-html-preview.js";
@@ -191,8 +192,11 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     });
   };
 
-  const detectElement = (clientX: number, clientY: number): void => {
-    const element = getElementAtPosition(clientX, clientY);
+  // Over the lens's own UI (toolbar, menu) this clears the target rather than
+  // keeping the page element underneath, so the highlight is not drawn under
+  // the toolbar and clicking it cannot leave a stale target for Cmd+C.
+  const detectElement = (clientX: number, clientY: number, throughLensUi = false): void => {
+    const element = getElementAtPosition(clientX, clientY, { throughLensUi });
     if (element === store.state.detectedElement) return;
     store.setDetectedElement(element);
     updateSelectionFromElement(element);
@@ -285,6 +289,42 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     }, FEEDBACK_DURATION_MS);
   };
 
+  // The element to act on, ignoring one removed from the DOM since it was
+  // targeted (e.g. by client-side navigation under a stationary pointer).
+  const getConnectedTarget = (): Element | null => {
+    // While the context menu is open, act on the element it was opened for.
+    const menuElement = renderState.actionContext?.element;
+    if (menuElement) {
+      if (menuElement.isConnected) return menuElement;
+      dismissContextMenu();
+      return null;
+    }
+    const detected = store.state.detectedElement;
+    if (detected?.isConnected) return detected;
+    if (store.state.isActive) detectElement(store.state.pointer.x, store.state.pointer.y);
+    return store.state.detectedElement;
+  };
+
+  // A single-key shortcut (e.g. "O" for Open) of an enabled action in the
+  // open context menu. Multi-key shortcuts such as Cmd+C are handled
+  // elsewhere and never match here.
+  const findMenuShortcutAction = (event: KeyboardEvent): ContextMenuAction | null => {
+    const context = renderState.actionContext;
+    if (!renderState.contextMenuPosition || !context) return null;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
+    if (isKeyboardEventFromInput(event)) return null;
+    const key = event.key?.toLowerCase() ?? "";
+    if (key.length !== 1) return null;
+    return (
+      renderState.contextMenuActions.find(
+        (action) =>
+          action.shortcut?.length === 1 &&
+          action.shortcut.toLowerCase() === key &&
+          isActionEnabled(action, context),
+      ) ?? null
+    );
+  };
+
   const onKeyDown = (event: KeyboardEvent): void => {
     if (!renderState.enabled) return;
     if (
@@ -294,10 +334,20 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       return;
     }
 
+    const shortcutAction = findMenuShortcutAction(event);
+    if (shortcutAction && renderState.actionContext) {
+      event.preventDefault();
+      event.stopPropagation();
+      // A held key auto-repeats; run the action once per press, not per repeat.
+      if (event.repeat) return;
+      // Same as clicking the menu item.
+      if (getConnectedTarget()) void shortcutAction.onAction(renderState.actionContext);
+      return;
+    }
+
     // Never take over native copy inside text fields.
     if (isCopyKeyCombo(event) && store.state.isActive && !isKeyboardEventFromInput(event)) {
-      // While the context menu is open, copy the element it was opened for.
-      const target = renderState.actionContext?.element ?? store.state.detectedElement;
+      const target = getConnectedTarget();
       if (target) {
         event.preventDefault();
         event.stopPropagation();
@@ -383,7 +433,8 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     }
     // Hover is frozen while a menu is open, so target what is under the
     // right-click rather than the element the previous menu was opened for.
-    detectElement(event.clientX, event.clientY);
+    // The menu's full-viewport backdrop is on top, so look through it.
+    detectElement(event.clientX, event.clientY, Boolean(renderState.contextMenuPosition));
     if (!store.state.detectedElement) return;
     event.preventDefault();
     event.stopPropagation();
@@ -392,6 +443,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
 
   const showContextMenu = async (position: Position, element: Element): Promise<void> => {
     const source = await resolveSource(element);
+    if (!element.isConnected) return;
     const ctx: ActionContext = {
       element,
       elements: [element],
@@ -418,13 +470,33 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   const dismissContextMenu = (): void => {
     closeContextMenu();
     // Hover was frozen while the menu was open; catch up with the pointer.
+    // Flush first so the menu backdrop is gone before detecting under it.
+    flushSync();
     if (store.state.isActive) detectElement(store.state.pointer.x, store.state.pointer.y);
   };
+
+  // Client-side navigation can remove the targeted element under a
+  // stationary pointer; drop it (re-detecting) so it is neither highlighted
+  // nor acted on. Shadow-root changes (the lens UI) are not observed.
+  const onDomMutation = (): void => {
+    if (!store.state.isActive) return;
+    const menuElement = renderState.actionContext?.element;
+    if (menuElement) {
+      if (!menuElement.isConnected) dismissContextMenu();
+      return;
+    }
+    if (store.state.detectedElement?.isConnected === false) {
+      detectElement(store.state.pointer.x, store.state.pointer.y);
+    }
+  };
+  const domObserver =
+    typeof MutationObserver === "undefined" ? null : new MutationObserver(onDomMutation);
 
   const activate = (): void => {
     if (!renderState.enabled) return;
     store.activate();
     renderState.isActive = true;
+    domObserver?.observe(document, { childList: true, subtree: true });
     // Detect under the current pointer so a keyboard activation is usable
     // before the mouse moves.
     detectElement(store.state.pointer.x, store.state.pointer.y);
@@ -432,6 +504,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   };
 
   const deactivate = (): void => {
+    domObserver?.disconnect();
     store.deactivate();
     renderState.isActive = false;
     renderState.selectionVisible = false;

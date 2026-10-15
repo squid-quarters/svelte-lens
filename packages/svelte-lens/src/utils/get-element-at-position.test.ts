@@ -9,22 +9,40 @@ describe("getElementAtPosition", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns first non-host element", () => {
+  it("returns the topmost element", () => {
+    const target = document.createElement("button");
+    const below = document.createElement("div");
+    document.body.appendChild(target);
+    document.body.appendChild(below);
+
+    vi.spyOn(Document.prototype, "elementsFromPoint").mockReturnValue([target, below]);
+    expect(getElementAtPosition(10, 10)).toBe(target);
+
+    target.remove();
+    below.remove();
+    vi.restoreAllMocks();
+  });
+
+  it("returns null when the lens UI is topmost, not the page element under it", () => {
     const host = document.createElement("div");
     host.setAttribute(HOST_ATTRIBUTE, "true");
-    const target = document.createElement("button");
+    const hostChild = document.createElement("span");
+    host.appendChild(hostChild);
+    const target = document.createElement("div");
     document.body.appendChild(host);
     document.body.appendChild(target);
 
     vi.spyOn(Document.prototype, "elementsFromPoint").mockReturnValue([host, target]);
-    expect(getElementAtPosition(10, 10)).toBe(target);
+    expect(getElementAtPosition(10, 10)).toBe(null);
+    vi.spyOn(Document.prototype, "elementsFromPoint").mockReturnValue([hostChild, host, target]);
+    expect(getElementAtPosition(10, 10)).toBe(null);
 
     host.remove();
     target.remove();
     vi.restoreAllMocks();
   });
 
-  it("skips host children and returns first real element", () => {
+  it("looks through the lens UI to the first page element with throughLensUi", () => {
     const host = document.createElement("div");
     host.setAttribute(HOST_ATTRIBUTE, "true");
     const hostChild = document.createElement("span");
@@ -34,7 +52,7 @@ describe("getElementAtPosition", () => {
     document.body.appendChild(target);
 
     vi.spyOn(Document.prototype, "elementsFromPoint").mockReturnValue([hostChild, host, target]);
-    expect(getElementAtPosition(10, 10)).toBe(target);
+    expect(getElementAtPosition(10, 10, { throughLensUi: true })).toBe(target);
 
     host.remove();
     target.remove();

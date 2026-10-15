@@ -34,18 +34,23 @@ npm install @gear-null/svelte-lens
 Add to your root layout and call `init()` in dev mode:
 
 ```svelte
-<!-- +layout.svelte -->
+<!-- src/routes/+layout.svelte -->
 <script lang="ts">
-  import { dev } from "$app/environment";
   import { onMount } from "svelte";
 
+  let { children } = $props();
+
   onMount(() => {
-    if (dev) {
+    if (import.meta.env.DEV) {
       void import("@gear-null/svelte-lens").then((m) => m.init());
     }
   });
 </script>
+
+{@render children()}
 ```
+
+`import.meta.env.DEV` is replaced at build time (SvelteKit and plain Vite alike), so production builds drop svelte-lens entirely.
 
 Or use the CLI to scaffold it automatically:
 

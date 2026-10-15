@@ -31,5 +31,8 @@ export default defineConfig([
     dts: false,
     sourcemap: false,
     splitting: false,
+    define: {
+      "process.env.SVELTE_LENS_MCP_VERSION": JSON.stringify(pkg.version),
+    },
   },
 ]);

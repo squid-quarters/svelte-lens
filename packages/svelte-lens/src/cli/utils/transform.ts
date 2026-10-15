@@ -2,7 +2,14 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { Framework } from "./detect.js";
-import { SVELTEKIT_LAYOUT_BLOCK, VITE_SVELTE_IMPORT } from "./templates.js";
+import {
+  SVELTEKIT_LAYOUT_BLOCK,
+  SVELTEKIT_LAYOUT_FILE,
+  VITE_SVELTE_IMPORT,
+  lensOnMountCode,
+  lensScriptImport,
+  sveltekitLayoutBlock,
+} from "./templates.js";
 
 export interface TransformResult {
   success: boolean;
@@ -51,17 +58,15 @@ const rewriteLegacyImports = (content: string): string =>
       `${prefix}${quote}@gear-null/svelte-lens${subpath}${quote}`,
   );
 
-// Aliased bindings so the merged code can't collide with (or depend on) the
-// user's own imports of `dev` / `onMount`. Duplicate imports are valid ES.
-const LENS_ONMOUNT_CODE = `
-  __lensOnMount(() => {
-    if (__lensDev) import("@gear-null/svelte-lens").then((m) => m.init());
-  });`;
-
-const LENS_SCRIPT_IMPORTS = [
-  `  import { dev as __lensDev } from "$app/environment";`,
-  `  import { onMount as __lensOnMount } from "svelte";`,
-];
+// Indent the inserted lines like the file does (sv create uses tabs): the
+// leading whitespace of the first indented line, else two spaces.
+const detectIndent = (...sources: string[]): string => {
+  for (const source of sources) {
+    const indent = /^([ \t]+)\S/m.exec(source)?.[1];
+    if (indent) return indent;
+  }
+  return "  ";
+};
 
 interface ScriptBlock {
   start: number;
@@ -142,10 +147,11 @@ const mergeIntoExistingScript = (content: string, parse: SvelteParse): string | 
     if (!module) return null;
     // Only a module script: add a new instance script after it, same lang.
     const lang = module.attrs.match(/\blang\s*=\s*["'][^"']*["']/)?.[0];
+    const indent = detectIndent(module.body, content);
     const block = [
       lang ? `<script ${lang}>` : "<script>",
-      ...LENS_SCRIPT_IMPORTS,
-      LENS_ONMOUNT_CODE,
+      lensScriptImport(indent),
+      lensOnMountCode(indent),
       "</script>",
     ].join("\n");
     return `${content.slice(0, module.end)}\n\n${block}${content.slice(module.end)}`;
@@ -154,10 +160,11 @@ const mergeIntoExistingScript = (content: string, parse: SvelteParse): string | 
   // Imports are hoisted, so they can go right after the open tag; the existing
   // statements are kept as-is (no line-based import parsing).
   const body = instance.body.replace(/\s*$/, "");
+  const indent = detectIndent(instance.body, content);
   const newBlock = [
     instance.openTag,
-    ...LENS_SCRIPT_IMPORTS,
-    `${body.startsWith("\n") ? body.slice(1) : body}\n${LENS_ONMOUNT_CODE}`,
+    lensScriptImport(indent),
+    `${body.startsWith("\n") ? body.slice(1) : body}\n${lensOnMountCode(indent)}`,
     "</script>",
   ].join("\n");
 
@@ -175,7 +182,7 @@ const transformSvelteKit = (projectRoot: string): TransformResult => {
       filePath: fallbackPath,
       message: "Will create src/routes/+layout.svelte",
       originalContent: "",
-      newContent: `${SVELTEKIT_LAYOUT_BLOCK}\n\n<slot />\n`,
+      newContent: SVELTEKIT_LAYOUT_FILE,
     };
   }
 
@@ -223,7 +230,7 @@ const transformSvelteKit = (projectRoot: string): TransformResult => {
   }
 
   // No component script — prepend the full block
-  const newContent = `${SVELTEKIT_LAYOUT_BLOCK}\n\n${originalContent}`;
+  const newContent = `${sveltekitLayoutBlock(detectIndent(originalContent))}\n\n${originalContent}`;
 
   return {
     success: true,

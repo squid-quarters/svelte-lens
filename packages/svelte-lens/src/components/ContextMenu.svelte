@@ -2,6 +2,7 @@
   import { VIEWPORT_MARGIN_PX } from "../constants.js";
   import type { ActionContext, ContextMenuAction, Position } from "../types.js";
   import { getViewportSize } from "../utils/get-viewport-size.js";
+  import { isActionEnabled } from "../utils/is-action-enabled.js";
 
   interface Props {
     position: Position | null;
@@ -35,15 +36,13 @@
     return `position:fixed;top:${y}px;left:${x}px`;
   });
 
-  const isEnabled = (action: ContextMenuAction): boolean => {
-    if (!actionContext) return false;
-    if (action.enabled === undefined) return true;
-    if (typeof action.enabled === "boolean") return action.enabled;
-    return action.enabled(actionContext);
-  };
-
   const runAction = async (action: ContextMenuAction): Promise<void> => {
     if (!actionContext) return;
+    // The element was removed (e.g. client-side navigation): nothing to act on.
+    if (!actionContext.element.isConnected) {
+      onDismiss();
+      return;
+    }
     await action.onAction(actionContext);
   };
 </script>
@@ -51,7 +50,7 @@
 {#if position && actionContext}
   <div bind:this={menuEl} class="lens-menu" style={menuStyle} role="menu">
     {#each actions as action (action.id)}
-      {@const enabled = isEnabled(action)}
+      {@const enabled = isActionEnabled(action, actionContext)}
       <button
         class="lens-menu-item"
         disabled={!enabled}

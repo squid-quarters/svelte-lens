@@ -29,6 +29,11 @@ updates:
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # The package builds against its svelte peer floor (devDependency pinned
+      # to the peerDependencies minimum) so dist only uses internals that exist
+      # there. Raise both together, deliberately, in a changeset — never via a
+      # devDependency-only bump (the package test enforces the pin).
+      - dependency-name: "svelte"
     # include: scope yields "chore(deps): …" / "chore(deps-dev): …"
     commit-message:
       prefix: "chore"

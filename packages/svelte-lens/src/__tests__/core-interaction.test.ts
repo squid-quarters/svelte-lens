@@ -51,6 +51,9 @@ describe("core/index.svelte.ts — interaction", () => {
     vi.restoreAllMocks();
   });
 
+  const labelDisplay = (): string =>
+    getShadowRoot().querySelector<HTMLElement>(".lens-label")?.style.display ?? "";
+
   const makeEl = (id: string, tag = "div"): HTMLElement => {
     const el = document.createElement(tag);
     el.id = id;
@@ -459,6 +462,217 @@ describe("core/index.svelte.ts — interaction", () => {
       await wait(10);
       expect(onElementSelect).toHaveBeenCalled();
       expect(writeText).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("context menu single-key shortcuts", () => {
+    const registerAction = (lens: SvelteLensAPI, enabled = true) => {
+      const onAction = vi.fn();
+      lens.registerPlugin({
+        name: "shortcut",
+        actions: [{ id: "x", label: "Do X", shortcut: "X", enabled, onAction }],
+      });
+      return onAction;
+    };
+
+    it("runs the action for its key, case-insensitively, while the menu is open", async () => {
+      const lens = await setup();
+      const onAction = registerAction(lens);
+      const a = makeEl("a");
+      lens.activate();
+      await openMenu(a);
+
+      const event = keydown({ key: "x" });
+      expect(event.defaultPrevented).toBe(true);
+      expect(onAction).toHaveBeenCalledTimes(1);
+      expect(onAction.mock.calls[0]![0].element).toBe(a);
+
+      keydown({ key: "X" });
+      expect(onAction).toHaveBeenCalledTimes(2);
+    });
+
+    it("ignores the key with modifiers, from inputs, when disabled, or with no menu", async () => {
+      const lens = await setup();
+      const onAction = registerAction(lens);
+      lens.activate();
+      elementAt = makeEl("a");
+      pointerMove(1, 1);
+      expect(keydown({ key: "x" }).defaultPrevented).toBe(false);
+
+      await openMenu(makeEl("b"));
+      expect(keydown({ key: "x", metaKey: true }).defaultPrevented).toBe(false);
+      expect(keydown({ key: "X", shiftKey: true }).defaultPrevented).toBe(false);
+      lens.setOptions({ allowActivationInsideInput: true });
+      expect(keydown({ key: "x" }, makeEl("i", "input")).defaultPrevented).toBe(false);
+      expect(onAction).not.toHaveBeenCalled();
+    });
+
+    it("does not run a disabled action", async () => {
+      const lens = await setup();
+      const onAction = registerAction(lens, false);
+      lens.activate();
+      await openMenu(makeEl("a"));
+      expect(keydown({ key: "x" }).defaultPrevented).toBe(false);
+      expect(onAction).not.toHaveBeenCalled();
+    });
+
+    it("'O' opens the element's source in the editor", async () => {
+      const openFileInEditor = vi.fn().mockResolvedValue(true);
+      vi.doMock("../utils/open-file-in-editor.js", () => ({ openFileInEditor }));
+      vi.doMock("../core/source.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../core/source.js")>()),
+        resolveSource: vi.fn().mockResolvedValue({
+          filePath: "/src/App.svelte",
+          lineNumber: 3,
+          componentName: "App",
+        }),
+      }));
+      try {
+        const lens = await setup();
+        lens.activate();
+        await openMenu(makeEl("a"));
+        keydown({ key: "o" });
+        await wait(10);
+        expect(openFileInEditor).toHaveBeenCalledWith("/src/App.svelte", 3);
+        expect(lens.isActive()).toBe(false);
+      } finally {
+        vi.doUnmock("../utils/open-file-in-editor.js");
+        vi.doUnmock("../core/source.js");
+      }
+    });
+
+    it("leaves Cmd+C to the copy handling", async () => {
+      const lens = await setup();
+      lens.activate();
+      await openMenu(makeEl("a"));
+      keydown({ key: "c" });
+      await wait(10);
+      expect(writeText).not.toHaveBeenCalled();
+      keydown({ key: "c", metaKey: true });
+      await wait(10);
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("pointer over the lens UI", () => {
+    it("clears the target instead of targeting the page element under the toolbar", async () => {
+      const lens = await setup();
+      const a = makeEl("a");
+      const host = document.querySelector(`[${HOST_ATTRIBUTE}]`)!;
+      lens.activate();
+      elementAt = a;
+      pointerMove(1, 1);
+      expect(lens.getState().targetElement).toBe(a);
+
+      vi.mocked(document.elementsFromPoint).mockImplementation(() => [host, a]);
+      window.dispatchEvent(new Event("scroll"));
+      expect(lens.getState().targetElement).toBe(null);
+      await wait();
+      expect(labelDisplay()).toBe("none");
+
+      keydown({ key: "c", metaKey: true });
+      await wait(10);
+      expect(writeText).not.toHaveBeenCalled();
+    });
+
+    it("a right-click on the menu backdrop still targets the page element under it", async () => {
+      const lens = await setup();
+      const a = makeEl("a");
+      const b = makeEl("b");
+      const host = document.querySelector(`[${HOST_ATTRIBUTE}]`)!;
+      lens.activate();
+      await openMenu(a);
+      vi.mocked(document.elementsFromPoint).mockImplementation(() => [host, b]);
+      document.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          clientX: 50,
+          clientY: 50,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await wait(10);
+      expect(lens.getState().targetElement).toBe(b);
+    });
+  });
+
+  describe("removed target (client-side navigation)", () => {
+    it("Cmd+C re-detects under the pointer instead of copying a removed element", async () => {
+      const lens = await setup();
+      const stale = makeEl("stale");
+      lens.activate();
+      elementAt = stale;
+      pointerMove(1, 1);
+      stale.remove();
+      elementAt = makeEl("fresh");
+
+      keydown({ key: "c", metaKey: true });
+      await wait(10);
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(writeText.mock.calls[0]![0]).toContain('id="fresh"');
+      expect(lens.getState().targetElement?.id).toBe("fresh");
+    });
+
+    it("Cmd+C copies nothing when nothing is under the pointer any more", async () => {
+      const lens = await setup();
+      const stale = makeEl("stale");
+      lens.activate();
+      elementAt = stale;
+      pointerMove(1, 1);
+      // Remove without a mutation callback having run yet.
+      stale.remove();
+      elementAt = null;
+      const event = keydown({ key: "c", metaKey: true });
+      expect(event.defaultPrevented).toBe(false);
+      await wait(10);
+      expect(writeText).not.toHaveBeenCalled();
+      expect(lens.getState().targetElement).toBe(null);
+    });
+
+    it("drops the highlight when the target is removed under a stationary pointer", async () => {
+      const lens = await setup();
+      const stale = makeEl("stale");
+      lens.activate();
+      elementAt = stale;
+      pointerMove(1, 1);
+      await wait();
+      expect(labelDisplay()).not.toBe("none");
+
+      stale.remove();
+      elementAt = null;
+      await wait();
+      expect(lens.getState().targetElement).toBe(null);
+      expect(labelDisplay()).toBe("none");
+    });
+
+    it("menu Copy on a removed element closes the menu without copying", async () => {
+      const lens = await setup();
+      const stale = makeEl("stale");
+      lens.activate();
+      await openMenu(stale);
+      const copyItem = Array.from(getShadowRoot().querySelectorAll("button")).find(
+        (b) => b.textContent?.includes("Copy") && b.getAttribute("role") === "menuitem",
+      );
+      // Detach without letting the mutation observer close the menu first.
+      elementAt = null;
+      stale.remove();
+      copyItem!.click();
+      await wait(10);
+      expect(writeText).not.toHaveBeenCalled();
+      expect(getShadowRoot().querySelector('[role="menu"]')).toBe(null);
+      expect(lens.getState().targetElement).toBe(null);
+    });
+
+    it("closes the menu when its element is removed", async () => {
+      const lens = await setup();
+      const stale = makeEl("stale");
+      lens.activate();
+      await openMenu(stale);
+      elementAt = null;
+      stale.remove();
+      await wait();
+      expect(getShadowRoot().querySelector('[role="menu"]')).toBe(null);
+      expect(lens.getState().targetElement).toBe(null);
     });
   });
 });

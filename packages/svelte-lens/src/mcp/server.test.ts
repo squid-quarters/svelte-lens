@@ -66,6 +66,7 @@ let server: Server | undefined;
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   if (server) {
     server.closeAllConnections();
     await new Promise((resolve) => server!.close(resolve));
@@ -99,6 +100,21 @@ describe("MCP HTTP server", () => {
     expect(unhandled).not.toHaveBeenCalled();
     const health = await send(port, "GET", "/health");
     expect(health.status).toBe(200);
+  });
+
+  it("reports the package version in serverInfo", async () => {
+    // tsup defines this as the package version; dist is checked in package-e2e.
+    vi.stubEnv("SVELTE_LENS_MCP_VERSION", "9.8.7");
+    const { createHttpServer } = await loadServer();
+    server = createHttpServer(0);
+    const port = await listen(server);
+
+    const res = await initialize(port);
+    expect(res.status).toBe(200);
+    // Streamable HTTP may answer as SSE: take the JSON from the data line.
+    const json = res.body.match(/^data: (.*)$/m)?.[1] ?? res.body;
+    const { result } = JSON.parse(json) as { result: { serverInfo: unknown } };
+    expect(result.serverInfo).toEqual({ name: "svelte-lens-mcp", version: "9.8.7" });
   });
 
   it("evicts idle sessions so abandoned clients cannot exhaust MAX_SESSIONS", async () => {

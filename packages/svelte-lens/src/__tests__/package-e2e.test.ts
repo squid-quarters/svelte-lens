@@ -331,4 +331,30 @@ describe("svelte peer floor", () => {
     const missing = [...used].filter((name) => !(name in internals)).sort();
     expect(missing, "dist uses svelte internals missing from the peer floor").toEqual([]);
   });
+
+  // The floor test above only proves the backward direction. Dependabot's
+  // svelte ignore is workspace-wide and also freezes the e2e app, which is the
+  // only check that runs floor-built dist on newer svelte, so a workflow must
+  // run the E2E suite with the e2e app upgraded to the latest svelte.
+  it("a workflow runs the e2e suite on the latest svelte while Dependabot ignores svelte", () => {
+    const repoRoot = resolve(pkgRoot, "../..");
+    const dependabot = readFileSync(resolve(repoRoot, ".github/dependabot.yml"), "utf8");
+    if (!/^\s*-\s*dependency-name:\s*["']?svelte["']?\s*$/m.test(dependabot)) return;
+
+    const workflowsDir = resolve(repoRoot, ".github/workflows");
+    const covering = readdirSync(workflowsDir)
+      .filter((f) => /\.ya?ml$/.test(f))
+      .filter((f) => {
+        const text = readFileSync(resolve(workflowsDir, f), "utf8");
+        const upgrade = text.search(
+          /pnpm --filter @svelte-lens\/e2e-app add\b[^\n]*\bsvelte@latest\b/,
+        );
+        const e2e = text.search(/pnpm --filter @svelte-lens\/e2e-app test:e2e\b/);
+        return upgrade !== -1 && e2e > upgrade && /^\s*schedule:/m.test(text);
+      });
+    expect(
+      covering,
+      "no scheduled workflow upgrades apps/e2e-app to svelte@latest before running test:e2e",
+    ).not.toEqual([]);
+  });
 });

@@ -33,6 +33,9 @@ updates:
       # to the peerDependencies minimum) so dist only uses internals that exist
       # there. Raise both together, deliberately, in a changeset — never via a
       # devDependency-only bump (the package test enforces the pin).
+      # Ignore rules are workspace-wide, so this also freezes apps/e2e-app's
+      # svelte; workflows/svelte-latest.yml covers forward compatibility by
+      # running the E2E suite with the e2e app on the latest svelte.
       - dependency-name: "svelte"
     # include: scope yields "chore(deps): …" / "chore(deps-dev): …"
     commit-message:

@@ -338,6 +338,8 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     if (shortcutAction && renderState.actionContext) {
       event.preventDefault();
       event.stopPropagation();
+      // A held key auto-repeats; run the action once per press, not per repeat.
+      if (event.repeat) return;
       // Same as clicking the menu item.
       if (getConnectedTarget()) void shortcutAction.onAction(renderState.actionContext);
       return;

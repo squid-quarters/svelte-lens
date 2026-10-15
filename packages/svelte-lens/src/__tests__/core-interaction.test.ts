@@ -491,6 +491,22 @@ describe("core/index.svelte.ts — interaction", () => {
       expect(onAction).toHaveBeenCalledTimes(2);
     });
 
+    it("runs once per press and swallows auto-repeats of a held key", async () => {
+      const lens = await setup();
+      const onAction = registerAction(lens);
+      lens.activate();
+      await openMenu(makeEl("a"));
+
+      expect(keydown({ key: "x" }).defaultPrevented).toBe(true);
+      for (let i = 0; i < 3; i++) {
+        expect(keydown({ key: "x", repeat: true }).defaultPrevented).toBe(true);
+      }
+      expect(onAction).toHaveBeenCalledTimes(1);
+
+      keydown({ key: "x" });
+      expect(onAction).toHaveBeenCalledTimes(2);
+    });
+
     it("ignores the key with modifiers, from inputs, when disabled, or with no menu", async () => {
       const lens = await setup();
       const onAction = registerAction(lens);

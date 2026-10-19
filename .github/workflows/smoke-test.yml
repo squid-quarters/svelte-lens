@@ -66,14 +66,23 @@ jobs:
         run: |
           set -euo pipefail
           npm init -y
-          # Retry up to 3 times — npm registry propagation can lag.
-          for i in 1 2 3; do
+          # npm registry propagation can lag several minutes after publish
+          # (1.0.3 took longer than the old 3 x 30s window), so retry for up
+          # to ~10 minutes and fail explicitly instead of falling through.
+          for i in $(seq 1 19); do
             if npm install "@gear-null/svelte-lens@$VERSION" 2>/dev/null; then
-              break
+              exit 0
             fi
             echo "Attempt $i failed — npm registry may not have the version yet. Retrying in 30s..."
             sleep 30
           done
+          # Final attempt keeps stderr so a non-propagation failure (peer
+          # conflict, integrity, auth) shows its real cause.
+          if npm install "@gear-null/svelte-lens@$VERSION"; then
+            exit 0
+          fi
+          echo "::error::@gear-null/svelte-lens@$VERSION was not installable from npm after 20 attempts"
+          exit 1
 
       - name: Verify installed version matches
         if: steps.version.outputs.version != 'latest'

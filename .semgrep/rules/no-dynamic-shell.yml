@@ -1,0 +1,67 @@
+rules:
+  - id: domaine-no-dynamic-shell
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Pass a fixed executable and separate arguments to execFile or spawn instead of a dynamic shell command.
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import { exec } from "node:child_process";
+                  ...
+              - pattern-inside: |
+                  import { exec } from "child_process";
+                  ...
+          - pattern: exec($COMMAND, ...)
+          - pattern-not: exec("...", ...)
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import { execSync } from "node:child_process";
+                  ...
+              - pattern-inside: |
+                  import { execSync } from "child_process";
+                  ...
+          - pattern: execSync($COMMAND, ...)
+          - pattern-not: execSync("...", ...)
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import { exec as $EXEC } from "node:child_process";
+                  ...
+              - pattern-inside: |
+                  import { execSync as $EXEC } from "node:child_process";
+                  ...
+              - pattern-inside: |
+                  import { exec as $EXEC } from "child_process";
+                  ...
+              - pattern-inside: |
+                  import { execSync as $EXEC } from "child_process";
+                  ...
+          - pattern: $EXEC($COMMAND, ...)
+          - pattern-not: $EXEC("...", ...)
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import * as $CP from "node:child_process";
+                  ...
+              - pattern-inside: |
+                  import * as $CP from "child_process";
+                  ...
+              - pattern-inside: |
+                  import $CP from "node:child_process";
+                  ...
+              - pattern-inside: |
+                  import $CP from "child_process";
+                  ...
+              - pattern-inside: |
+                  const $CP = require("node:child_process");
+                  ...
+              - pattern-inside: |
+                  const $CP = require("child_process");
+                  ...
+          - pattern-either:
+              - pattern: $CP.exec($COMMAND, ...)
+              - pattern: $CP.execSync($COMMAND, ...)
+          - pattern-not: $CP.exec("...", ...)
+          - pattern-not: $CP.execSync("...", ...)

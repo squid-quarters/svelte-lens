@@ -47,9 +47,9 @@ CI and self-review miss. Do not surface a PR for human review mid-loop.
 
 ### Tracked work
 
-Track non-trivial work in GitHub Issues before writing code; keep the
-issue updated as work progresses. Trivial changes (typos, automated
-bumps, single-line fixes) are exempt.
+Track this local-gate rollout in the existing human-owned Paperclip GEA-64.
+Do not create a duplicate GitHub issue or assign a Paperclip agent. Other
+non-trivial work should use its established human-owned tracker.
 
 ### Defaults
 
@@ -81,6 +81,14 @@ pnpm typecheck                   # svelte-check
 pnpm format:check                # prettier
 pnpm --filter @svelte-lens/e2e-app test:e2e   # E2E
 ```
+
+### Full local commit gate
+
+Install this checkout’s gate with `pnpm quality:install`, using Node from
+`.nvmrc` and the pinned package manager. Every commit runs the full staged
+snapshot through [the local quality contract](docs/local-quality.md).
+Do not bypass the hook or substitute a pre-push check. Installation is
+per checkout; merging this file does not install hooks in other checkouts.
 
 ### Security posture
 

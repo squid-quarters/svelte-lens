@@ -1,0 +1,29 @@
+rules:
+  - id: domaine-url-to-dom-html
+    languages: [javascript, typescript]
+    severity: ERROR
+    mode: taint
+    message: Render URL-controlled values as text or use a reviewed HTML sanitizer before an HTML sink.
+    pattern-sources:
+      - pattern: location.hash
+      - pattern: location.search
+      - pattern: location.href
+      - pattern: window.location.hash
+      - pattern: window.location.search
+      - pattern: window.location.href
+      - pattern: document.location.hash
+      - pattern: document.location.search
+      - pattern: document.location.href
+    pattern-sinks:
+      - patterns:
+          - pattern: $ELEMENT.innerHTML = $HTML
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: $ELEMENT.outerHTML = $HTML
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: $ELEMENT.insertAdjacentHTML($POSITION, $HTML)
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: document.write(..., $HTML, ...)
+          - focus-metavariable: $HTML

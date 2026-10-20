@@ -1,0 +1,20 @@
+{
+  "commands": [
+    ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"],
+    ["pnpm", "test:ci"],
+    ["pnpm", "format:check"],
+    ["pnpm", "lint"],
+    ["pnpm", "test:security"],
+    ["pnpm", "build"],
+    ["pnpm", "typecheck"],
+    ["pnpm", "test"],
+    ["pnpm", "--filter", "@gear-null/svelte-lens", "test:package"],
+    ["pnpm", "--filter", "@svelte-lens/e2e-app", "test:e2e", "--workers=1", "--retries=0"],
+    ["node", ".github/scripts/ci-latest.mjs"]
+  ],
+  "tools": [
+    ["git", "--version"],
+    ["npm", "--version"],
+    ["docker", "--version"]
+  ]
+}

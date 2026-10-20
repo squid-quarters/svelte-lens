@@ -19,16 +19,29 @@ const fillComponentName = (frame: ElementSourceInfo): SourceInfo => ({
   componentName: frame.componentName ?? componentNameFromFilePath(frame.filePath),
 });
 
-export const resolveSource = async (element: Element): Promise<SourceInfo | null> => {
-  const source = await resolver.resolveSource(element);
-  if (!source) return null;
-  return fillComponentName(source);
-};
+// SvelteKit renders route files (+page, +layout, +error) through a dynamic
+// component in its own root, so the tag naming them is a variable such as
+// "Component". Name them after the file instead.
+const isRouteFile = (filePath: string): boolean => /(^|[/\\])\+[^/\\]+\.svelte$/.test(filePath);
+
+// Frames inside dependencies or SvelteKit's generated code (its root
+// component) say nothing about the app and crowd app frames out of the
+// copied stack.
+const isFrameworkFrame = (frame: ElementSourceInfo): boolean =>
+  /(^|[/\\])(node_modules|\.svelte-kit)[/\\]/.test(frame.filePath);
 
 export const resolveStack = async (element: Element): Promise<SourceInfo[]> => {
-  const stack = await resolver.resolveStack(element);
-  return stack.map(fillComponentName);
+  const [first, ...rest] = await resolver.resolveStack(element);
+  if (!first) return [];
+  // The first frame is where the element itself is written; keep it even in a
+  // dependency so a library component still resolves to its source.
+  const own = fillComponentName(first);
+  if (isRouteFile(first.filePath)) own.componentName = componentNameFromFilePath(first.filePath);
+  return [own, ...rest.filter((frame) => !isFrameworkFrame(frame)).map(fillComponentName)];
 };
+
+export const resolveSource = async (element: Element): Promise<SourceInfo | null> =>
+  (await resolveStack(element))[0] ?? null;
 
 export const getStackContext = async (
   element: Element,

@@ -8,6 +8,15 @@ const COMMAND_BY_PACKAGE_MANAGER: Record<PackageManager, [string, string[]]> = {
   bun: ["bun", ["add", "-d"]],
 };
 
+// The command a user can run themselves, e.g. after `init --skip-install`.
+export const formatInstallCommand = (
+  packageNames: string[],
+  packageManager: PackageManager,
+): string => {
+  const [command, baseArgs] = COMMAND_BY_PACKAGE_MANAGER[packageManager];
+  return [command, ...baseArgs, ...packageNames].join(" ");
+};
+
 export const installPackages = async (
   packageNames: string[],
   packageManager: PackageManager,

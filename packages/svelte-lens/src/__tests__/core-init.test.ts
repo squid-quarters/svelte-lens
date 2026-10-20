@@ -136,6 +136,39 @@ describe("core/index.svelte.ts — init()", () => {
     expect(next.isEnabled()).toBe(true);
   });
 
+  it("a disposed API cannot be activated again", async () => {
+    const observe = vi.spyOn(MutationObserver.prototype, "observe");
+    const { init } = await import("../core/index.svelte.js");
+    const api = init();
+    api.dispose();
+    cleanup = null;
+
+    api.activate();
+    api.toggle();
+    api.setEnabled(true);
+    api.activate();
+
+    expect(api.isActive()).toBe(false);
+    expect(api.isEnabled()).toBe(false);
+    expect(observe).not.toHaveBeenCalled();
+  });
+
+  it("disposing a stale API twice leaves a newer instance intact", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    first.dispose();
+    const second = init();
+    cleanup = second.dispose;
+    window.__SVELTE_LENS__ = second;
+
+    first.dispose();
+
+    expect(window.__SVELTE_LENS__).toBe(second);
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
+    // The init guard still belongs to the live instance.
+    expect(init().isEnabled()).toBe(false);
+  });
+
   it("dispose clears window.__SVELTE_LENS__ when set", async () => {
     const { init } = await import("../core/index.svelte.js");
     const api = init();

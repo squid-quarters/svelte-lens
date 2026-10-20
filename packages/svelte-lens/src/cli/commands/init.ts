@@ -4,7 +4,7 @@ import { Command } from "commander";
 import prompts from "prompts";
 import { detectProject } from "../utils/detect.js";
 import { applyTransform, previewTransform } from "../utils/transform.js";
-import { installPackages } from "../utils/install.js";
+import { formatInstallCommand, installPackages } from "../utils/install.js";
 import { logger, colors } from "../utils/logger.js";
 
 const FRAMEWORK_LABELS = {
@@ -85,7 +85,8 @@ export const init = new Command("init")
       }
     }
 
-    if (!opts.skipInstall && !project.hasSvelteLens) {
+    const needsInstall = !project.hasSvelteLens;
+    if (!opts.skipInstall && needsInstall) {
       logger.info("Installing svelte-lens as dev dependency...");
       await installPackages(
         ["@gear-null/svelte-lens"],
@@ -100,6 +101,15 @@ export const init = new Command("init")
     }
 
     logger.break();
+    if (opts.skipInstall && needsInstall) {
+      logger.success("svelte-lens configured.");
+      logger.warn(
+        `Package not installed (--skip-install). Install it to finish: ${colors.highlight(
+          formatInstallCommand(["@gear-null/svelte-lens"], project.packageManager),
+        )}`,
+      );
+      return;
+    }
     logger.success("svelte-lens installed.");
     logger.log("Restart your dev server to load it.");
   });

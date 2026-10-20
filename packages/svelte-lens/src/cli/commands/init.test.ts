@@ -7,7 +7,10 @@ const { installPackages, prompts } = vi.hoisted(() => ({
   installPackages: vi.fn(),
   prompts: vi.fn(),
 }));
-vi.mock("../utils/install.js", () => ({ installPackages }));
+vi.mock("../utils/install.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/install.js")>()),
+  installPackages,
+}));
 vi.mock("prompts", () => ({ default: prompts }));
 
 let root: string;
@@ -34,6 +37,8 @@ const originalIsTTY = process.stdin.isTTY;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "svelte-lens-init-"));
+  // The test runner's own package manager must not leak into detection.
+  vi.stubEnv("npm_config_user_agent", "");
   vi.spyOn(process, "exit").mockImplementation((code) => {
     throw new Error(`exit ${code}`);
   });
@@ -45,6 +50,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
   process.stdin.isTTY = originalIsTTY;
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   installPackages.mockReset();
   prompts.mockReset();
 });
@@ -101,6 +107,18 @@ describe("init command", () => {
     prompts.mockResolvedValue({ proceed: true });
     await runInit("--skip-install");
     expect(prompts).toHaveBeenCalledOnce();
+    expect(readFileSync(layoutPath(), "utf-8")).toContain("@gear-null/svelte-lens");
+  });
+
+  it("does not claim the package is installed after --skip-install", async () => {
+    writeKitProject({}, PLAIN_LAYOUT);
+    vi.stubEnv("npm_config_user_agent", "pnpm/10.12.1 npm/? node/v22.0.0 darwin arm64");
+    await runInit("--yes", "--skip-install");
+
+    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(installPackages).not.toHaveBeenCalled();
+    expect(output).not.toContain("svelte-lens installed.");
+    expect(output).toContain("pnpm add -D @gear-null/svelte-lens");
     expect(readFileSync(layoutPath(), "utf-8")).toContain("@gear-null/svelte-lens");
   });
 });

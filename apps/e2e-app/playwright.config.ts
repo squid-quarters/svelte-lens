@@ -11,9 +11,9 @@ export default defineConfig({
     permissions: ["clipboard-read", "clipboard-write"],
   },
   webServer: {
-    command: "pnpm dev",
+    command: "pnpm dev --strictPort",
     port: 5174,
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },
 });

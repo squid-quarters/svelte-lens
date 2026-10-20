@@ -1,0 +1,18 @@
+# Reviewed source exclusions. Rule fixtures run separately with --test.
+.git/
+node_modules/
+**/node_modules/
+.svelte-kit/
+**/.svelte-kit/
+.turbo/
+build/
+**/build/
+dist/
+**/dist/
+coverage/
+**/coverage/
+test-results/
+**/test-results/
+playwright-report/
+**/playwright-report/
+.semgrep/tests/

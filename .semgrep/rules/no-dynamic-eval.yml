@@ -1,0 +1,10 @@
+rules:
+  - id: domaine-no-dynamic-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Avoid executing source strings; use explicit functions or parse data instead.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: globalThis.eval(...)
+      - pattern: new Function(...)
+      - pattern: Function(...)

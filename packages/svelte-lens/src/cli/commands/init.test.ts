@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { installPackages, prompts } = vi.hoisted(() => ({
@@ -31,6 +32,10 @@ const runInit = async (...args: string[]) => {
   const { init } = await import("./init.js");
   await init.parseAsync(["--cwd", root, ...args], { from: "user" });
 };
+
+// CI forces colour on, so drop ANSI codes before matching text.
+const loggedOutput = () =>
+  stripVTControlCharacters(vi.mocked(console.log).mock.calls.flat().join("\n"));
 
 const PLAIN_LAYOUT = "<script>\n  let x = 1;\n</script>\n";
 const originalIsTTY = process.stdin.isTTY;
@@ -115,7 +120,7 @@ describe("init command", () => {
     vi.stubEnv("npm_config_user_agent", "pnpm/10.12.1 npm/? node/v22.0.0 darwin arm64");
     await runInit("--yes", "--skip-install");
 
-    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    const output = loggedOutput();
     expect(installPackages).not.toHaveBeenCalled();
     expect(output).not.toContain("svelte-lens installed.");
     expect(output).toContain("pnpm add -D @gear-null/svelte-lens");
@@ -127,18 +132,18 @@ describe("init command", () => {
     vi.spyOn(process, "cwd").mockReturnValue(join(root, ".."));
     await runInit("--yes", "--skip-install");
 
-    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    const output = loggedOutput();
     expect(output).toContain(
       `Install it in ${root}: npm install --save-dev @gear-null/svelte-lens`,
     );
   });
 
-  it("omits the cd when the shell is already in the project", async () => {
+  it("names no directory when the shell is already in the project", async () => {
     writeKitProject({}, PLAIN_LAYOUT);
     vi.spyOn(process, "cwd").mockReturnValue(root);
     await runInit("--yes", "--skip-install");
 
-    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    const output = loggedOutput();
     expect(output).toContain("Install it to finish: npm install --save-dev @gear-null/svelte-lens");
   });
 });

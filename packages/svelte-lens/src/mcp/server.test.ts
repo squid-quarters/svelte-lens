@@ -232,9 +232,7 @@ describe("startMcpServer --stdio", () => {
     };
 
     await startMcpServer({ port: busyPort, stdio: true });
-    await vi.waitFor(() =>
-      expect(stderr).toHaveBeenCalledWith(expect.stringMatching(/could not start/)),
-    );
+    // Call the tool at once: the answer must still reflect the failed start.
 
     const transport = stdioTransports[stdioTransports.length - 1]!;
     transport.onmessage?.({
@@ -263,6 +261,7 @@ describe("startMcpServer --stdio", () => {
     expect(reply.isError).toBe(true);
     expect(reply.content[0]!.text).toContain(`127.0.0.1:${busyPort}`);
     expect(reply.content[0]!.text).toContain("EADDRINUSE");
+    expect(stderr).toHaveBeenCalledWith(expect.stringMatching(/could not start/));
 
     // Remove only the shutdown handlers this server added to the shared stdin.
     for (const event of ["end", "close"] as const) {

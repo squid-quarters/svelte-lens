@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { installPackages, prompts } = vi.hoisted(() => ({
@@ -120,5 +120,26 @@ describe("init command", () => {
     expect(output).not.toContain("svelte-lens installed.");
     expect(output).toContain("pnpm add -D @gear-null/svelte-lens");
     expect(readFileSync(layoutPath(), "utf-8")).toContain("@gear-null/svelte-lens");
+  });
+
+  it("tells the user where to install when --cwd is another directory", async () => {
+    writeKitProject({}, PLAIN_LAYOUT);
+    vi.spyOn(process, "cwd").mockReturnValue(join(root, ".."));
+    await runInit("--yes", "--skip-install");
+
+    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(output).toContain(
+      `cd "${basename(root)}" && npm install --save-dev @gear-null/svelte-lens`,
+    );
+  });
+
+  it("omits the cd when the shell is already in the project", async () => {
+    writeKitProject({}, PLAIN_LAYOUT);
+    vi.spyOn(process, "cwd").mockReturnValue(root);
+    await runInit("--yes", "--skip-install");
+
+    const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+    expect(output).not.toContain("cd ");
+    expect(output).toContain("npm install --save-dev @gear-null/svelte-lens");
   });
 });

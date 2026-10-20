@@ -27,6 +27,12 @@ interface StoredContext {
 }
 
 let latestContext: StoredContext | null = null;
+// Set in stdio mode when the context server cannot listen (e.g. the port is
+// taken), so the agent learns why no context will ever arrive.
+let contextServerError: string | null = null;
+// Settles once the stdio-mode context server has started or failed, so a tool
+// call made right after connecting still sees a startup failure.
+let contextServerStarting: Promise<void> | null = null;
 
 const textResult = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
@@ -60,6 +66,10 @@ const createMcpServer = (): McpServer => {
         "Get the latest svelte-lens context that was submitted from the browser. Returns the most recent UI element selection with its prompt.",
     },
     async () => {
+      if (!latestContext && contextServerStarting) await contextServerStarting;
+      if (!latestContext && contextServerError) {
+        return { ...textResult(contextServerError), isError: true };
+      }
       if (!latestContext) {
         return textResult("No context has been submitted yet.");
       }
@@ -363,9 +373,16 @@ export const startMcpServer = async ({
     // stdout is reserved for JSON-RPC here — log only to stderr.
     // The /mcp HTTP endpoint is also accessible — this is intentional so
     // that HTTP-based MCP clients can still connect if needed.
-    startHttpServer(port).then(
+    contextServerStarting = startHttpServer(port).then(
       () => console.error(`svelte-lens context server listening on 127.0.0.1:${port}`),
-      (error) => console.error(`Failed to start context server: ${error}`),
+      (error) => {
+        const reason = error instanceof Error ? error.message : String(error);
+        contextServerError =
+          `The svelte-lens context server could not start on 127.0.0.1:${port} (${reason}), ` +
+          "so browser selections cannot reach this session. Stop the process using that port " +
+          "(often another svelte-lens-mcp instance), then restart this MCP server.";
+        console.error(contextServerError);
+      },
     );
     return;
   }

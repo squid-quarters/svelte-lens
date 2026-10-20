@@ -53,7 +53,25 @@ For AI agent integration (Claude Code, Cursor, Windsurf):
 
 Or run directly: `npx -y -p @gear-null/svelte-lens svelte-lens-mcp` (HTTP mode on `127.0.0.1:5174`; add `--stdio` for stdio transport).
 
-The lens does not send context to the MCP server automatically. Submit it with `POST http://127.0.0.1:5174/context` (JSON body `{ "content": string[], "prompt"?: string }`, loopback origins only), for example from a plugin's `transformCopyContent` hook. Agents read it with the `get_element_context` tool.
+The lens does not send context to the MCP server automatically. Submit it with `POST http://127.0.0.1:5174/context` (JSON body `{ "content": string[], "prompt"?: string }`, loopback origins only). Agents read it with the `get_element_context` tool. For example, a plugin that forwards everything you copy:
+
+```ts
+api.registerPlugin({
+  name: "mcp-bridge",
+  hooks: {
+    transformCopyContent: (content) => {
+      void fetch("http://127.0.0.1:5174/context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: [content] }),
+      }).catch(() => {});
+      return content;
+    },
+  },
+});
+```
+
+With `--stdio`, the server still listens on port 5174 for `/context`. If that port is taken (often by another `svelte-lens-mcp`), `get_element_context` returns an error saying so.
 
 ## Features
 
@@ -79,7 +97,12 @@ const api = init();
 
 api.activate();
 api.deactivate();
-api.registerPlugin({ name: "my-plugin", hooks: { ... } });
+api.registerPlugin({
+  name: "my-plugin",
+  hooks: {
+    onAfterCopy: (elements, success) => console.log("copied", elements, success),
+  },
+});
 api.setEnabled(false);
 api.dispose();
 ```

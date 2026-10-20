@@ -93,6 +93,8 @@ api.registerPlugin({
 });
 ```
 
+With `--stdio`, the server still listens on port 5174 for `/context`. If that port is taken (often by another `svelte-lens-mcp`), `get_element_context` returns an error saying so.
+
 ## Keyboard shortcuts
 
 | Action               | macOS       | Linux/Windows |

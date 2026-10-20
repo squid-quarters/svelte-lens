@@ -1,4 +1,5 @@
 import type { ActivationKey } from "../types.js";
+import { matchesLetter } from "./matches-letter.js";
 
 interface ParsedKey {
   key: string;
@@ -36,6 +37,9 @@ const matchesParsedKey = (event: KeyboardEvent, parsed: ParsedKey): boolean => {
   if (parsed.ctrl !== event.ctrlKey) return false;
   if (parsed.meta !== event.metaKey) return false;
   if (!parsed.key) return true;
+  // A single letter goes through matchesLetter so Option-modified glyphs on
+  // macOS (Option+K types "˚") still match by physical key.
+  if (/^[a-z]$/.test(parsed.key)) return matchesLetter(event, parsed.key);
   return event.key.toLowerCase() === parsed.key || event.code.toLowerCase() === parsed.key;
 };
 

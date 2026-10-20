@@ -77,4 +77,17 @@ describe("ContextMenu", () => {
     expect(mounted.menu.style.left).toBe(`${983 - MENU_WIDTH - VIEWPORT_MARGIN_PX}px`);
     expect(mounted.menu.style.top).toBe(`${783 - MENU_HEIGHT - VIEWPORT_MARGIN_PX}px`);
   });
+
+  it("re-clamps an open menu when the viewport shrinks", () => {
+    mounted = renderMenu({ x: 700, y: 600 });
+    expect(mounted.menu.style.left).toBe("700px");
+
+    vi.stubGlobal("innerWidth", 600);
+    vi.stubGlobal("innerHeight", 500);
+    window.dispatchEvent(new Event("resize"));
+    flushSync();
+
+    expect(mounted.menu.style.left).toBe(`${600 - MENU_WIDTH - VIEWPORT_MARGIN_PX}px`);
+    expect(mounted.menu.style.top).toBe(`${500 - MENU_HEIGHT - VIEWPORT_MARGIN_PX}px`);
+  });
 });

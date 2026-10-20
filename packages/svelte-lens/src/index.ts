@@ -42,11 +42,12 @@ const init = (options?: import("./types.js").Options): SvelteLensAPI => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("svelte-lens:init", { detail: api }));
     }
-    // Wrap dispose so the module-level globalApi is also cleared.
+    // Wrap dispose so the module-level globalApi is also cleared, unless a
+    // newer instance has replaced it (a stale handle disposed again).
     const origDispose = api.dispose.bind(api);
     api.dispose = () => {
       origDispose();
-      setGlobalApi(null);
+      if (globalApi === api) setGlobalApi(null);
     };
   }
   return api;

@@ -3,12 +3,27 @@ import { request as httpRequest, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_SESSIONS, SESSION_IDLE_TTL_MS } from "./constants.js";
 
+const stdioTransports = vi.hoisted(
+  () =>
+    [] as Array<{
+      onmessage?: (message: unknown) => void;
+      sent: Array<{ id?: number; result?: unknown }>;
+    }>,
+);
+
 vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
   // Stand-in transport so the stdio test never reads the worker's real stdin.
   StdioServerTransport: class {
     onclose?: () => void;
+    onmessage?: (message: unknown) => void;
+    sent: Array<{ id?: number; result?: unknown }> = [];
+    constructor() {
+      stdioTransports.push(this);
+    }
     async start() {}
-    async send() {}
+    async send(message: { id?: number; result?: unknown }) {
+      this.sent.push(message);
+    }
     async close() {
       this.onclose?.();
     }
@@ -201,6 +216,60 @@ describe("startMcpServer --stdio", () => {
     for (const signal of ["SIGTERM", "SIGINT"] as const) {
       const listeners = process.listeners(signal);
       process.off(signal, listeners[listeners.length - 1]!);
+    }
+  });
+
+  it("tells the agent when the context server cannot listen", async () => {
+    // Occupy a port with something that is not svelte-lens.
+    server = (await import("node:http")).createServer((_req, res) => res.writeHead(500).end());
+    const busyPort = await listen(server);
+    const { startMcpServer } = await loadServer();
+    vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stdinListeners = {
+      end: process.stdin.listeners("end"),
+      close: process.stdin.listeners("close"),
+    };
+
+    await startMcpServer({ port: busyPort, stdio: true });
+    // Call the tool at once: the answer must still reflect the failed start.
+
+    const transport = stdioTransports[stdioTransports.length - 1]!;
+    transport.onmessage?.({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "test", version: "0.0.0" },
+      },
+    });
+    transport.onmessage?.({ jsonrpc: "2.0", method: "notifications/initialized" });
+    transport.onmessage?.({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "get_element_context", arguments: {} },
+    });
+    await vi.waitFor(() => expect(transport.sent.some((m) => m.id === 2)).toBe(true));
+
+    const reply = transport.sent.find((m) => m.id === 2)!.result as {
+      isError?: boolean;
+      content: Array<{ text: string }>;
+    };
+    expect(reply.isError).toBe(true);
+    expect(reply.content[0]!.text).toContain(`127.0.0.1:${busyPort}`);
+    expect(reply.content[0]!.text).toContain("EADDRINUSE");
+    expect(stderr).toHaveBeenCalledWith(expect.stringMatching(/could not start/));
+
+    // Remove only the shutdown handlers this server added to the shared stdin.
+    for (const event of ["end", "close"] as const) {
+      for (const listener of process.stdin.listeners(event)) {
+        if (!stdinListeners[event].includes(listener)) {
+          process.stdin.off(event, listener as (...args: unknown[]) => void);
+        }
+      }
     }
   });
 });

@@ -141,4 +141,17 @@ describe("index.ts public API", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("disposing a stale API again keeps the newer instance as the global", async () => {
+    const { getGlobalApi, init } = await import("../index.js");
+    const first = init();
+    first.dispose();
+    const second = init();
+    cleanup = second.dispose;
+
+    first.dispose();
+
+    expect(getGlobalApi()).toBe(second);
+    expect(window.__SVELTE_LENS__).toBe(second);
+  });
 });

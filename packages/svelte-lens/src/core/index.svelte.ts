@@ -28,6 +28,7 @@ import { copyToClipboard } from "../utils/copy-to-clipboard.js";
 import { getTagName } from "../utils/get-tag-name.js";
 import { formatHtmlPreview } from "../utils/format-html-preview.js";
 import { parseActivationKey } from "../utils/parse-activation-key.js";
+import { matchesLetter } from "../utils/matches-letter.js";
 import { createLensStore } from "./store.svelte.js";
 import { createPluginRegistry } from "./plugin-registry.svelte.js";
 import { resolveSource, getStackContext } from "./source.js";
@@ -58,22 +59,6 @@ const createNoopApi = (): SvelteLensAPI => ({
   getPlugins: () => [],
   dispose: noop,
 });
-
-// Match the typed letter (case-insensitive, for Caps Lock). Fall back to the
-// physical key (code) only when key is not a plain letter, e.g. macOS
-// Option-modified output like "ç"/"©" or dead keys. Matching code
-// unconditionally would hijack other letters on non-QWERTY layouts (Dvorak
-// Cmd+Option+I sends code "KeyG"). Never fall back under AltGr: Windows reports
-// it as Ctrl+Alt, and AltGr+G types "]" on Czech/Slovak/Hungarian layouts.
-const matchesLetter = (event: KeyboardEvent, letter: string): boolean => {
-  const key = event.key?.toLowerCase() ?? "";
-  if (key === letter) return true;
-  return (
-    !/^[a-z]$/.test(key) &&
-    !event.getModifierState?.("AltGraph") &&
-    event.code === `Key${letter.toUpperCase()}`
-  );
-};
 
 // In hold mode the activation chord's Option stays held, and macOS reports
 // Cmd+Option+C as key "ç".
@@ -173,6 +158,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   let holdModifiers: Record<ModifierKey, boolean> | null = null;
   let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
   let copyInProgress = false;
+  let disposed = false;
 
   const updateSelectionFromElement = (element: Element | null): void => {
     if (!element) {
@@ -493,7 +479,8 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     typeof MutationObserver === "undefined" ? null : new MutationObserver(onDomMutation);
 
   const activate = (): void => {
-    if (!renderState.enabled) return;
+    // A disposed instance has no listeners or UI left to deactivate it.
+    if (disposed || !renderState.enabled) return;
     store.activate();
     renderState.isActive = true;
     domObserver?.observe(document, { childList: true, subtree: true });
@@ -621,6 +608,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     isActive: () => store.state.isActive,
     isEnabled: () => renderState.enabled,
     setEnabled: (value: boolean) => {
+      if (disposed) return;
       renderState.enabled = value;
       if (!value) deactivate();
     },
@@ -643,7 +631,11 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     unregisterPlugin: (name: string) => pluginRegistry.unregister(name),
     getPlugins: () => pluginRegistry.getPluginNames(),
     dispose: () => {
+      // A second dispose() must not reset the init guard of a newer instance.
+      if (disposed) return;
       if (store.state.isActive) deactivate();
+      disposed = true;
+      renderState.enabled = false;
       // Unregistering runs each plugin's setup() cleanup.
       for (const name of pluginRegistry.getPluginNames()) pluginRegistry.unregister(name);
       uninstallListeners();
@@ -657,7 +649,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       mounted = null;
       destroyMountRoot();
       guards.hasBeenInited = false;
-      if (typeof window !== "undefined") {
+      if (typeof window !== "undefined" && window.__SVELTE_LENS__ === api) {
         delete window.__SVELTE_LENS__;
       }
     },

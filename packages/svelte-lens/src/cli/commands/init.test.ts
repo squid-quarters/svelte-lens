@@ -1,13 +1,17 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { installPackages, prompts } = vi.hoisted(() => ({
   installPackages: vi.fn(),
   prompts: vi.fn(),
 }));
-vi.mock("../utils/install.js", () => ({ installPackages }));
+vi.mock("../utils/install.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/install.js")>()),
+  installPackages,
+}));
 vi.mock("prompts", () => ({ default: prompts }));
 
 let root: string;
@@ -29,11 +33,17 @@ const runInit = async (...args: string[]) => {
   await init.parseAsync(["--cwd", root, ...args], { from: "user" });
 };
 
+// CI forces colour on, so drop ANSI codes before matching text.
+const loggedOutput = () =>
+  stripVTControlCharacters(vi.mocked(console.log).mock.calls.flat().join("\n"));
+
 const PLAIN_LAYOUT = "<script>\n  let x = 1;\n</script>\n";
 const originalIsTTY = process.stdin.isTTY;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "svelte-lens-init-"));
+  // The test runner's own package manager must not leak into detection.
+  vi.stubEnv("npm_config_user_agent", "");
   vi.spyOn(process, "exit").mockImplementation((code) => {
     throw new Error(`exit ${code}`);
   });
@@ -45,6 +55,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
   process.stdin.isTTY = originalIsTTY;
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   installPackages.mockReset();
   prompts.mockReset();
 });
@@ -102,5 +113,37 @@ describe("init command", () => {
     await runInit("--skip-install");
     expect(prompts).toHaveBeenCalledOnce();
     expect(readFileSync(layoutPath(), "utf-8")).toContain("@gear-null/svelte-lens");
+  });
+
+  it("does not claim the package is installed after --skip-install", async () => {
+    writeKitProject({}, PLAIN_LAYOUT);
+    vi.stubEnv("npm_config_user_agent", "pnpm/10.12.1 npm/? node/v22.0.0 darwin arm64");
+    await runInit("--yes", "--skip-install");
+
+    const output = loggedOutput();
+    expect(installPackages).not.toHaveBeenCalled();
+    expect(output).not.toContain("svelte-lens installed.");
+    expect(output).toContain("pnpm add -D @gear-null/svelte-lens");
+    expect(readFileSync(layoutPath(), "utf-8")).toContain("@gear-null/svelte-lens");
+  });
+
+  it("tells the user where to install when --cwd is another directory", async () => {
+    writeKitProject({}, PLAIN_LAYOUT);
+    vi.spyOn(process, "cwd").mockReturnValue(join(root, ".."));
+    await runInit("--yes", "--skip-install");
+
+    const output = loggedOutput();
+    expect(output).toContain(
+      `Install it in ${root}: npm install --save-dev @gear-null/svelte-lens`,
+    );
+  });
+
+  it("names no directory when the shell is already in the project", async () => {
+    writeKitProject({}, PLAIN_LAYOUT);
+    vi.spyOn(process, "cwd").mockReturnValue(root);
+    await runInit("--yes", "--skip-install");
+
+    const output = loggedOutput();
+    expect(output).toContain("Install it to finish: npm install --save-dev @gear-null/svelte-lens");
   });
 });

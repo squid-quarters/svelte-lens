@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { detect } from "package-manager-detector/detect";
+import { detect, getUserAgent } from "package-manager-detector/detect";
 
 export type PackageManager = "npm" | "yarn" | "pnpm" | "bun";
 export type Framework = "sveltekit" | "vite-svelte" | "unknown";
@@ -16,15 +16,16 @@ export interface ProjectInfo {
 
 const PACKAGE_MANAGERS = new Set<PackageManager>(["npm", "yarn", "pnpm", "bun"]);
 
+const toPackageManager = (agent: string | null | undefined): PackageManager | null => {
+  const name = agent?.split("@")[0];
+  return PACKAGE_MANAGERS.has(name as PackageManager) ? (name as PackageManager) : null;
+};
+
+// A lockfile or packageManager field wins; without either (a fresh project),
+// use whichever package manager is running the CLI, e.g. pnpm under `pnpm dlx`.
 export const detectPackageManager = async (projectRoot: string): Promise<PackageManager> => {
   const result = await detect({ cwd: projectRoot });
-  if (result?.agent) {
-    const name = result.agent.split("@")[0];
-    if (PACKAGE_MANAGERS.has(name as PackageManager)) {
-      return name as PackageManager;
-    }
-  }
-  return "npm";
+  return toPackageManager(result?.agent) ?? toPackageManager(getUserAgent()) ?? "npm";
 };
 
 const readDependencies = (projectRoot: string): Record<string, string> | null => {

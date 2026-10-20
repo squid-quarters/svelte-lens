@@ -15,6 +15,9 @@
 
   let menuEl: HTMLDivElement | undefined = $state();
   let menuSize = $state({ width: 0, height: 0 });
+  // Bumped on resize so a viewport that shrinks while the menu is open
+  // re-clamps it.
+  let resizeCount = $state(0);
 
   // Re-measure whenever the menu opens, moves or its action list changes.
   $effect(() => {
@@ -28,6 +31,7 @@
   // Keep the menu inside the viewport; the strict-contained host clips overflow.
   const menuStyle = $derived.by(() => {
     if (!position) return "";
+    void resizeCount;
     const viewport = getViewportSize();
     const maxX = viewport.width - menuSize.width - VIEWPORT_MARGIN_PX;
     const maxY = viewport.height - menuSize.height - VIEWPORT_MARGIN_PX;
@@ -46,6 +50,8 @@
     await action.onAction(actionContext);
   };
 </script>
+
+<svelte:window onresize={() => resizeCount++} />
 
 {#if position && actionContext}
   <div bind:this={menuEl} class="lens-menu" style={menuStyle} role="menu">

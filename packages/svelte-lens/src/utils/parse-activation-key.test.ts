@@ -59,4 +59,22 @@ describe("parseActivationKey", () => {
     const matching = makeKeyboardEvent({ key: "g" });
     expect(matcher(matching)).toBe(true);
   });
+
+  it("matches a letter by physical key when macOS Option changes the glyph", () => {
+    const matcher = parseActivationKey("Meta+Alt+K");
+    const optionK = makeKeyboardEvent({ key: "˚", code: "KeyK", metaKey: true, altKey: true });
+    expect(matcher(optionK)).toBe(true);
+  });
+
+  it("does not match a different letter that shares the physical key (Dvorak)", () => {
+    const matcher = parseActivationKey("Meta+Alt+K");
+    const dvorakT = makeKeyboardEvent({ key: "t", code: "KeyK", metaKey: true, altKey: true });
+    expect(matcher(dvorakT)).toBe(false);
+  });
+
+  it("still matches an explicit code such as 'KeyK'", () => {
+    const matcher = parseActivationKey("Meta+Alt+KeyK");
+    const optionK = makeKeyboardEvent({ key: "˚", code: "KeyK", metaKey: true, altKey: true });
+    expect(matcher(optionK)).toBe(true);
+  });
 });

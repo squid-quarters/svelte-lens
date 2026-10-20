@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { installPackages, prompts } = vi.hoisted(() => ({
@@ -129,7 +129,7 @@ describe("init command", () => {
 
     const output = vi.mocked(console.log).mock.calls.flat().join("\n");
     expect(output).toContain(
-      `cd "${basename(root)}" && npm install --save-dev @gear-null/svelte-lens`,
+      `Install it in ${root}: npm install --save-dev @gear-null/svelte-lens`,
     );
   });
 
@@ -139,7 +139,6 @@ describe("init command", () => {
     await runInit("--yes", "--skip-install");
 
     const output = vi.mocked(console.log).mock.calls.flat().join("\n");
-    expect(output).not.toContain("cd ");
-    expect(output).toContain("npm install --save-dev @gear-null/svelte-lens");
+    expect(output).toContain("Install it to finish: npm install --save-dev @gear-null/svelte-lens");
   });
 });

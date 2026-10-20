@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { Command } from "commander";
 import prompts from "prompts";
 import { detectProject } from "../utils/detect.js";
@@ -102,13 +102,16 @@ export const init = new Command("init")
 
     logger.break();
     if (opts.skipInstall && needsInstall) {
-      // With --cwd the project is not where the user's shell is.
-      const dir = relative(process.cwd(), project.projectRoot);
-      const install = formatInstallCommand(["@gear-null/svelte-lens"], project.packageManager);
-      const command = dir ? `cd ${JSON.stringify(dir)} && ${install}` : install;
+      const install = colors.highlight(
+        formatInstallCommand(["@gear-null/svelte-lens"], project.packageManager),
+      );
       logger.success("svelte-lens configured.");
+      // With --cwd the project is not where the user's shell is. Name the
+      // directory rather than chaining `cd … &&`, which is not portable.
       logger.warn(
-        `Package not installed (--skip-install). Install it to finish: ${colors.highlight(command)}`,
+        resolve(process.cwd()) === project.projectRoot
+          ? `Package not installed (--skip-install). Install it to finish: ${install}`
+          : `Package not installed (--skip-install). Install it in ${project.projectRoot}: ${install}`,
       );
       return;
     }

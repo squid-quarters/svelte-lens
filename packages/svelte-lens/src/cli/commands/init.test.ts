@@ -146,4 +146,22 @@ describe("init command", () => {
     const output = loggedOutput();
     expect(output).toContain("Install it to finish: npm install --save-dev @gear-null/svelte-lens");
   });
+
+  it("says configured, not installed, when the package was already a dependency", async () => {
+    writeKitProject({ "@gear-null/svelte-lens": "^1.0.0" }, PLAIN_LAYOUT);
+    await runInit("--yes");
+
+    const output = loggedOutput();
+    expect(installPackages).not.toHaveBeenCalled();
+    expect(output).toContain("svelte-lens configured.");
+    expect(output).not.toContain("svelte-lens installed.");
+  });
+
+  it("says installed after installing the package", async () => {
+    writeKitProject({}, PLAIN_LAYOUT);
+    await runInit("--yes");
+
+    expect(installPackages).toHaveBeenCalled();
+    expect(loggedOutput()).toContain("svelte-lens installed.");
+  });
 });

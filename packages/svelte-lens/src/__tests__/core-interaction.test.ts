@@ -304,6 +304,45 @@ describe("core/index.svelte.ts — interaction", () => {
   });
 
   describe("activation options (#7)", () => {
+    it("setOptions({ activationKey: undefined }) restores the default shortcut", async () => {
+      const lens = await setup();
+      lens.setOptions({ activationKey: "Alt+L" });
+      lens.setOptions({ activationKey: undefined });
+      keydown({ key: "l", code: "KeyL", altKey: true });
+      expect(lens.isActive()).toBe(false);
+      keydown({ key: "g", code: "KeyG", metaKey: true, altKey: true });
+      expect(lens.isActive()).toBe(true);
+    });
+
+    it("fires onActivate/onDeactivate only on real state changes", async () => {
+      const lens = await setup();
+      const calls: string[] = [];
+      lens.registerPlugin({
+        name: "log",
+        hooks: {
+          onActivate: () => void calls.push("activate"),
+          onDeactivate: () => void calls.push("deactivate"),
+        },
+      });
+      lens.activate();
+      lens.activate();
+      lens.deactivate();
+      lens.deactivate();
+      lens.setEnabled(false);
+      expect(calls).toEqual(["activate", "deactivate"]);
+    });
+
+    it("a hold cancelled before activation does not report a deactivation", async () => {
+      const lens = await setup({ activationMode: "hold", keyHoldDuration: 30 });
+      const onDeactivate = vi.fn();
+      lens.registerPlugin({ name: "log", hooks: { onDeactivate } });
+      keydown({ key: "g", code: "KeyG", metaKey: true, altKey: true });
+      lens.setEnabled(false);
+      await wait(60);
+      expect(lens.isActive()).toBe(false);
+      expect(onDeactivate).not.toHaveBeenCalled();
+    });
+
     it("honours activationKey changed via setOptions", async () => {
       const lens = await setup();
       lens.setOptions({ activationKey: "Alt+L" });

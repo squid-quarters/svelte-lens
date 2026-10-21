@@ -32,15 +32,51 @@ const formatAttrs = (element: Element): string => {
   return parts.join("");
 };
 
+// Inline (phrasing) elements whose text reads as part of the parent's, e.g.
+// the link in <p>Visit <a>the docs</a> today</p>.
+const INLINE_TAGS = new Set([
+  "a",
+  "abbr",
+  "b",
+  "bdi",
+  "bdo",
+  "cite",
+  "code",
+  "data",
+  "dfn",
+  "em",
+  "i",
+  "kbd",
+  "mark",
+  "q",
+  "s",
+  "samp",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "sup",
+  "time",
+  "u",
+  "var",
+]);
+
 const getDirectText = (element: Element): string => {
   let text = "";
-  for (const node of Array.from(element.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const trimmed = node.textContent?.trim() ?? "";
-      if (trimmed) text += (text ? " " : "") + trimmed;
+  const collect = (parent: Element): void => {
+    for (const node of Array.from(parent.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.textContent ?? "";
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const child = node as Element;
+        // Block children are summarised elsewhere; keep a word break.
+        if (INLINE_TAGS.has(getTagName(child))) collect(child);
+        else text += " ";
+      }
     }
-  }
-  return text;
+  };
+  collect(element);
+  return text.replace(/\s+/g, " ").trim();
 };
 
 export const formatHtmlPreview = (element: Element): string => {

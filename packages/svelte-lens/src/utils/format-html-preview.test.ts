@@ -64,4 +64,22 @@ describe("formatHtmlPreview", () => {
     expect(result).toContain("...");
     expect(result.length).toBeLessThan(200);
   });
+
+  it("includes the text of inline children such as links", () => {
+    const p = document.createElement("p");
+    p.innerHTML = 'Visit <a href="/docs">the docs</a> to <strong>learn</strong> more';
+    expect(formatHtmlPreview(p)).toBe("<p>Visit the docs to learn more</p>");
+  });
+
+  it("joins inline fragments without inventing spaces", () => {
+    const span = document.createElement("span");
+    span.innerHTML = "<b>Hel</b>lo";
+    expect(formatHtmlPreview(span)).toBe("<span>Hello</span>");
+  });
+
+  it("does not pull text up from block children", () => {
+    const div = document.createElement("div");
+    div.innerHTML = "<p>Nested paragraph</p>";
+    expect(formatHtmlPreview(div)).toBe("<div>(1 children)</div>");
+  });
 });

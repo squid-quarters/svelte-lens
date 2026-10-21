@@ -115,6 +115,7 @@ export const init = new Command("init")
       );
       return;
     }
-    logger.success("svelte-lens installed.");
+    // Nothing was installed when the package was already a dependency.
+    logger.success(needsInstall ? "svelte-lens installed." : "svelte-lens configured.");
     logger.log("Restart your dev server to load it.");
   });

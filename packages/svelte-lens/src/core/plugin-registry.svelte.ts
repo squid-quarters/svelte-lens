@@ -104,7 +104,11 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
       if (optionKey === "__proto__" || optionKey === "constructor" || optionKey === "prototype") {
         continue;
       }
-      if (optionValue !== undefined) {
+      // undefined clears an earlier override, restoring the value from
+      // init(), plugins or the built-in default (e.g. Cmd/Ctrl+Alt+G).
+      if (optionValue === undefined) {
+        delete (directOptionOverrides as Record<string, unknown>)[optionKey];
+      } else {
         (directOptionOverrides as Record<string, unknown>)[optionKey] = optionValue;
       }
     }

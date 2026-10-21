@@ -29,10 +29,11 @@ jobs:
     permissions:
       contents: write          # for the version-bump commit
       pull-requests: write     # for the Version PR
-      actions: write           # to dispatch CI on the Version PR branch
     # Don't run on the version-bump commit itself — publishing is a
     # separate step triggered by creating a GitHub Release.
     if: "${{ !startsWith(github.event.head_commit.message, 'chore: version packages') }}"
+    outputs:
+      pr: ${{ steps.changesets.outputs.pullRequestNumber }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
         with:
@@ -63,11 +64,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Pushes made with GITHUB_TOKEN don't trigger workflows, so the
-      # Version PR would otherwise have no CI and stay unmergeable under
-      # branch protection. workflow_dispatch is exempt from that rule.
-      - name: Run CI on the Version PR
-        if: steps.changesets.outputs.pullRequestNumber != ''
-        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref changeset-release/main
+  # PR events caused by GITHUB_TOKEN only create CI runs that wait for a
+  # maintainer's approval, so the Version PR's required checks would not
+  # report on their own. workflow_dispatch runs start immediately.
+  # A separate job keeps actions: write away from the install and
+  # changeset code above: with it, that code could dispatch release.yml.
+  dispatch-ci:
+    name: Run CI on the Version PR
+    needs: version
+    if: needs.version.outputs.pr != ''
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "changeset-release/$GITHUB_REF_NAME"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}

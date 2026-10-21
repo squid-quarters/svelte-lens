@@ -1,5 +1,20 @@
 # @gear-null/svelte-lens
 
+## 1.0.4
+
+### Patch Changes
+
+- [#54](https://github.com/squid-quarters/svelte-lens/pull/54) [`cbb1e60`](https://github.com/squid-quarters/svelte-lens/commit/cbb1e606d12b3ba7674c2417a32c4e2d934c874a) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Fix follow-ups from 1.0.3 release testing:
+
+  - Custom `activationKey` letters with Alt/Option now match on macOS, where Option changes the typed glyph.
+  - A disposed instance can no longer be re-activated or re-enabled, and disposing it again leaves a newer instance untouched.
+  - An open context menu is re-clamped into the viewport when the window shrinks.
+  - `svelte-lens-mcp --stdio`: if the context server can't listen (e.g. port 5174 is taken), `get_element_context` now reports that instead of "No context has been submitted yet".
+  - `svelte-lens init` uses the invoking package manager (e.g. `pnpm dlx`) when the project has no lockfile.
+  - SvelteKit route components are labelled after their file (`+page`, `+layout`) instead of `Component`, and copied stacks omit `node_modules`/`.svelte-kit` frames.
+  - `init --skip-install` no longer claims the package was installed and prints the install command instead.
+  - Package README: added the MCP bridge plugin snippet and a compilable API example.
+
 ## 1.0.3
 
 ### Patch Changes

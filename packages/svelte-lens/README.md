@@ -56,11 +56,11 @@ Or run directly: `npx -y -p @gear-null/svelte-lens svelte-lens-mcp` (HTTP mode o
 The lens does not send context to the MCP server automatically. Submit it with `POST http://127.0.0.1:5174/context` (JSON body `{ "content": string[], "prompt"?: string }`, loopback origins only). Agents read it with the `get_element_context` tool. For example, a plugin that forwards everything you copy:
 
 ```ts
-// In your root layout's onMount, in place of the Quick Start import:
+// In your root layout's onMount, alongside or instead of the Quick Start code:
 if (import.meta.env.DEV) {
   import("@gear-null/svelte-lens").then((m) => {
-    const api = m.init();
-    api.registerPlugin({
+    m.init(); // no-op if svelte-lens is already running
+    m.registerPlugin({
       name: "mcp-bridge",
       hooks: {
         transformCopyContent: (content) => {

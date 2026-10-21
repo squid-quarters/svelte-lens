@@ -21,10 +21,16 @@ on:
   # PRs) leaves the PR permanently unmergeable.
   pull_request:
     branches: [main]
+  # The Version PR is opened by GITHUB_TOKEN, whose events never trigger
+  # workflows, so version.yml dispatches CI on the PR branch instead. Its
+  # check runs land on the branch head and satisfy the required checks.
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Branch-scoped for PRs and dispatches, so a newer run replaces an older
+  # one; pushes to main each run to completion.
+  group: ${{ github.workflow }}-${{ github.event_name != 'push' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 # Default to no permissions; CI is read-only.
 permissions:

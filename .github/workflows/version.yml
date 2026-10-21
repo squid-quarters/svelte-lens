@@ -29,6 +29,7 @@ jobs:
     permissions:
       contents: write          # for the version-bump commit
       pull-requests: write     # for the Version PR
+      actions: write           # to dispatch CI on the Version PR branch
     # Don't run on the version-bump commit itself — publishing is a
     # separate step triggered by creating a GitHub Release.
     if: "${{ !startsWith(github.event.head_commit.message, 'chore: version packages') }}"
@@ -61,3 +62,12 @@ jobs:
           commit: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pushes made with GITHUB_TOKEN don't trigger workflows, so the
+      # Version PR would otherwise have no CI and stay unmergeable under
+      # branch protection. workflow_dispatch is exempt from that rule.
+      - name: Run CI on the Version PR
+        if: steps.changesets.outputs.pullRequestNumber != ''
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref changeset-release/main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

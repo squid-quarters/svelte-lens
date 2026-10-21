@@ -56,19 +56,25 @@ Or run directly: `npx -y -p @gear-null/svelte-lens svelte-lens-mcp` (HTTP mode o
 The lens does not send context to the MCP server automatically. Submit it with `POST http://127.0.0.1:5174/context` (JSON body `{ "content": string[], "prompt"?: string }`, loopback origins only). Agents read it with the `get_element_context` tool. For example, a plugin that forwards everything you copy:
 
 ```ts
-api.registerPlugin({
-  name: "mcp-bridge",
-  hooks: {
-    transformCopyContent: (content) => {
-      void fetch("http://127.0.0.1:5174/context", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: [content] }),
-      }).catch(() => {});
-      return content;
-    },
-  },
-});
+// In your root layout's onMount, in place of the Quick Start import:
+if (import.meta.env.DEV) {
+  import("@gear-null/svelte-lens").then((m) => {
+    const api = m.init();
+    api.registerPlugin({
+      name: "mcp-bridge",
+      hooks: {
+        transformCopyContent: (content) => {
+          void fetch("http://127.0.0.1:5174/context", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: [content] }),
+          }).catch(() => {});
+          return content;
+        },
+      },
+    });
+  });
+}
 ```
 
 With `--stdio`, the server still listens on port 5174 for `/context`. If that port is taken (often by another `svelte-lens-mcp`), `get_element_context` returns an error saying so.

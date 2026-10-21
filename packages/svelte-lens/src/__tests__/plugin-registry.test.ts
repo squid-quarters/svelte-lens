@@ -110,6 +110,13 @@ describe("createPluginRegistry", () => {
     expect(registry.store.options.activationMode).toBe("hold");
   });
 
+  it("setOptions with undefined clears an override back to the init value", () => {
+    const registry = createPluginRegistry({ keyHoldDuration: 250 });
+    registry.setOptions({ keyHoldDuration: 500 });
+    registry.setOptions({ keyHoldDuration: undefined });
+    expect(registry.store.options.keyHoldDuration).toBe(250);
+  });
+
   it("aggregates actions from plugins", () => {
     const registry = createPluginRegistry();
     const plugin1: Plugin = {

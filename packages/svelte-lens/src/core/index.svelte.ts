@@ -481,6 +481,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   const activate = (): void => {
     // A disposed instance has no listeners or UI left to deactivate it.
     if (disposed || !renderState.enabled) return;
+    if (store.state.isActive) return;
     store.activate();
     renderState.isActive = true;
     domObserver?.observe(document, { childList: true, subtree: true });
@@ -490,7 +491,10 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     pluginRegistry.hooks.onActivate();
   };
 
+  // Always clears state (e.g. a pending hold), but only reports a real
+  // transition to plugins.
   const deactivate = (): void => {
+    const wasActive = store.state.isActive;
     domObserver?.disconnect();
     store.deactivate();
     renderState.isActive = false;
@@ -508,7 +512,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     }
     clearTrailingDetect();
     clearHold();
-    pluginRegistry.hooks.onDeactivate();
+    if (wasActive) pluginRegistry.hooks.onDeactivate();
   };
 
   const toggle = (): void => {

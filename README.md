@@ -78,19 +78,25 @@ Works with Claude Code, Cursor, Windsurf, and any MCP-compatible agent. Without 
 The server exposes one tool, `get_element_context`, which returns the most recently submitted context once (it expires after 5 minutes). The browser lens does **not** send context to the server automatically — submit it with `POST http://127.0.0.1:5174/context` and a JSON body `{ "content": string[], "prompt"?: string }`. The endpoint only accepts requests from loopback origins (`localhost`, `127.x.x.x`, `::1`). For example, a plugin that forwards everything you copy:
 
 ```ts
-api.registerPlugin({
-  name: "mcp-bridge",
-  hooks: {
-    transformCopyContent: (content) => {
-      void fetch("http://127.0.0.1:5174/context", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: [content] }),
-      }).catch(() => {});
-      return content;
-    },
-  },
-});
+// In your root layout's onMount, in place of the Quick start import:
+if (import.meta.env.DEV) {
+  import("@gear-null/svelte-lens").then((m) => {
+    const api = m.init();
+    api.registerPlugin({
+      name: "mcp-bridge",
+      hooks: {
+        transformCopyContent: (content) => {
+          void fetch("http://127.0.0.1:5174/context", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: [content] }),
+          }).catch(() => {});
+          return content;
+        },
+      },
+    });
+  });
+}
 ```
 
 With `--stdio`, the server still listens on port 5174 for `/context`. If that port is taken (often by another `svelte-lens-mcp`), `get_element_context` returns an error saying so.

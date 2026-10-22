@@ -194,6 +194,23 @@ describe("core/index.svelte.ts — init()", () => {
     expect(first.getPlugins()).not.toContain("y");
   });
 
+  it("keeps a shared plugin object until the last repeat-init() handle using it is disposed", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+    const shared = { name: "shared" };
+
+    // The same component mounted twice, each registering a shared constant.
+    const a = init();
+    const b = init();
+    a.registerPlugin(shared);
+    b.registerPlugin(shared);
+    a.dispose();
+    expect(first.getPlugins()).toContain("shared");
+    b.dispose();
+    expect(first.getPlugins()).not.toContain("shared");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");

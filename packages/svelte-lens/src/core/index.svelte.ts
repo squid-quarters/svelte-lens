@@ -684,21 +684,37 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   // only removes the plugins registered through it (if they haven't been
   // replaced since), so a component cleaning up after itself can't shut
   // svelte-lens down for everyone else.
+  // Handles holding each plugin object, so a shared plugin constant used by
+  // two mounted components survives the first one's cleanup.
+  const borrowedHolds = new Map<Plugin, number>();
   const borrow = (): SvelteLensAPI => {
     const registered = new Map<string, Plugin>();
+    const release = (plugin: Plugin): number => {
+      const holds = (borrowedHolds.get(plugin) ?? 1) - 1;
+      if (holds > 0) borrowedHolds.set(plugin, holds);
+      else borrowedHolds.delete(plugin);
+      return holds;
+    };
     return markBorrowed({
       ...api,
       registerPlugin: (plugin: Plugin) => {
+        const previous = registered.get(plugin.name);
+        if (previous) release(previous);
         registered.set(plugin.name, plugin);
+        borrowedHolds.set(plugin, (borrowedHolds.get(plugin) ?? 0) + 1);
         api.registerPlugin(plugin);
       },
       unregisterPlugin: (name: string) => {
+        const plugin = registered.get(name);
+        if (plugin) release(plugin);
         registered.delete(name);
         api.unregisterPlugin(name);
       },
       dispose: () => {
         for (const [name, plugin] of registered) {
-          if (pluginRegistry.isRegistered(plugin)) api.unregisterPlugin(name);
+          if (release(plugin) === 0 && pluginRegistry.isRegistered(plugin)) {
+            api.unregisterPlugin(name);
+          }
         }
         registered.clear();
       },

@@ -4,9 +4,11 @@
 // drop the dynamic import entirely.
 const LENS_INIT = `if (import.meta.env.DEV) import("@gear-null/svelte-lens").then((m) => m.init());`;
 
-export const sveltekitLayoutBlock = (indent = "  "): string =>
+const scriptOpenTag = (ts: boolean): string => (ts ? '<script lang="ts">' : "<script>");
+
+export const sveltekitLayoutBlock = (indent = "  ", ts = false): string =>
   [
-    "<script>",
+    scriptOpenTag(ts),
     `${indent}import { onMount } from "svelte";`,
     "",
     `${indent}onMount(() => {`,
@@ -17,21 +19,23 @@ export const sveltekitLayoutBlock = (indent = "  "): string =>
 
 export const SVELTEKIT_LAYOUT_BLOCK = sveltekitLayoutBlock();
 
-// A complete Svelte 5 root layout, for projects that have none yet.
-export const SVELTEKIT_LAYOUT_FILE = [
-  "<script>",
-  '  import { onMount } from "svelte";',
-  "",
-  "  let { children } = $props();",
-  "",
-  "  onMount(() => {",
-  `    ${LENS_INIT}`,
-  "  });",
-  "</script>",
-  "",
-  "{@render children()}",
-  "",
-].join("\n");
+// A complete Svelte 5 root layout, for projects that have none yet, in the
+// project's language and indentation.
+export const sveltekitLayoutFile = (indent = "  ", ts = false): string =>
+  [
+    scriptOpenTag(ts),
+    `${indent}import { onMount } from "svelte";`,
+    "",
+    `${indent}let { children } = $props();`,
+    "",
+    `${indent}onMount(() => {`,
+    `${indent}${indent}${LENS_INIT}`,
+    `${indent}});`,
+    "</script>",
+    "",
+    "{@render children()}",
+    "",
+  ].join("\n");
 
 // Aliased binding so merged code can't collide with (or depend on) the user's
 // own `onMount` import. Duplicate imports are valid ES.

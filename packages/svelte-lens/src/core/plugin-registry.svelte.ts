@@ -131,6 +131,9 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     recompute();
   };
 
+  // Whether this exact plugin object is the one registered under its name.
+  const isRegistered = (plugin: Plugin): boolean => plugins.get(plugin.name)?.plugin === plugin;
+
   const unregister = (name: string): void => {
     const registered = plugins.get(name);
     if (!registered) return;
@@ -227,6 +230,7 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     store,
     register,
     unregister,
+    isRegistered,
     getPluginNames,
     setOptions,
     hooks,

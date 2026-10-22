@@ -82,4 +82,24 @@ describe("formatHtmlPreview", () => {
     div.innerHTML = "<p>Nested paragraph</p>";
     expect(formatHtmlPreview(div)).toBe("<div>(1 children)</div>");
   });
+
+  it("notes block children that the text leaves out", () => {
+    const a = document.createElement("a");
+    a.innerHTML = "<div>Title</div><span>Sub</span>";
+    expect(formatHtmlPreview(a)).toBe("<a>Sub (+1 children)</a>");
+  });
+
+  it("does not count line breaks, icons, images or inputs as left-out children", () => {
+    const cases: Array<[string, string, string]> = [
+      ["p", "text<br>more", "<p>text more</p>"],
+      ["button", "<svg></svg>Save", "<button>Save</button>"],
+      ["label", '<input type="checkbox"> Remember me', "<label>Remember me</label>"],
+      ["a", "<img>Home", "<a>Home</a>"],
+    ];
+    for (const [tag, html, expected] of cases) {
+      const el = document.createElement(tag);
+      el.innerHTML = html;
+      expect(formatHtmlPreview(el)).toBe(expected);
+    }
+  });
 });

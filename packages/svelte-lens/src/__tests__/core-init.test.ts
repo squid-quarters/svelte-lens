@@ -136,6 +136,101 @@ describe("core/index.svelte.ts — init()", () => {
     expect(next.isEnabled()).toBe(true);
   });
 
+  it("a repeat init() returns a working handle onto the running instance", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+
+    const again = init({ enabled: true });
+    expect(warn).not.toHaveBeenCalled();
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
+
+    // It drives the same instance.
+    again.registerPlugin({ name: "late" });
+    expect(first.getPlugins()).toContain("late");
+    again.activate();
+    expect(first.isActive()).toBe(true);
+  });
+
+  it("a repeat init()'s dispose() only removes its own plugins", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+    first.registerPlugin({ name: "owner" });
+
+    const borrowed = init();
+    borrowed.registerPlugin({ name: "borrowed" });
+    borrowed.dispose();
+
+    expect(first.isEnabled()).toBe(true);
+    expect(first.getPlugins()).toContain("owner");
+    expect(first.getPlugins()).not.toContain("borrowed");
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
+  });
+
+  it("a repeat init()'s dispose() leaves a same-named plugin registered by someone else", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+    const cleanupOwner = vi.fn();
+
+    // The owner re-registers the name after a borrowed handle did.
+    const borrowed = init();
+    borrowed.registerPlugin({ name: "x" });
+    first.registerPlugin({ name: "x", setup: () => ({ cleanup: cleanupOwner }) });
+    borrowed.dispose();
+    expect(first.getPlugins()).toContain("x");
+    expect(cleanupOwner).not.toHaveBeenCalled();
+
+    // Two borrowed handles (e.g. two mounted components) using one name.
+    const h1 = init();
+    const h2 = init();
+    h1.registerPlugin({ name: "y" });
+    h2.registerPlugin({ name: "y" });
+    h1.dispose();
+    expect(first.getPlugins()).toContain("y");
+    h2.dispose();
+    expect(first.getPlugins()).not.toContain("y");
+  });
+
+  it("keeps a shared plugin object until the last repeat-init() handle using it is disposed", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+    const shared = { name: "shared" };
+
+    // The same component mounted twice, each registering a shared constant.
+    const a = init();
+    const b = init();
+    a.registerPlugin(shared);
+    b.registerPlugin(shared);
+    a.dispose();
+    expect(first.getPlugins()).toContain("shared");
+    b.dispose();
+    expect(first.getPlugins()).not.toContain("shared");
+  });
+
+  it("warns that options passed to a repeat init() are ignored", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+
+    init({ activationMode: "hold" });
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/already running/));
+  });
+
+  it("starts a fresh instance after dispose()", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    first.dispose();
+    const second = init();
+    cleanup = second.dispose;
+    expect(second).not.toBe(first);
+    expect(second.isEnabled()).toBe(true);
+  });
+
   it("a disposed API cannot be activated again", async () => {
     const observe = vi.spyOn(MutationObserver.prototype, "observe");
     const { init } = await import("../core/index.svelte.js");
@@ -166,7 +261,8 @@ describe("core/index.svelte.ts — init()", () => {
     expect(window.__SVELTE_LENS__).toBe(second);
     expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
     // The init guard still belongs to the live instance.
-    expect(init().isEnabled()).toBe(false);
+    expect(init().isEnabled()).toBe(true);
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
   });
 
   it("dispose clears window.__SVELTE_LENS__ when set", async () => {

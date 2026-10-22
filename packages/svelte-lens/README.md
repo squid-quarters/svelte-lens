@@ -59,7 +59,7 @@ The lens does not send context to the MCP server automatically. Submit it with `
 // In your root layout's onMount, alongside or instead of the Quick Start code:
 if (import.meta.env.DEV) {
   import("@gear-null/svelte-lens").then((m) => {
-    m.init(); // no-op if svelte-lens is already running
+    m.init(); // returns the running instance if there is one
     m.registerPlugin({
       name: "mcp-bridge",
       hooks: {
@@ -112,6 +112,8 @@ api.registerPlugin({
 api.setEnabled(false);
 api.dispose();
 ```
+
+Calling `init()` again while svelte-lens is running, for example from a component, returns a handle to the running instance. That handle's `dispose()` removes only the plugins registered through it; `dispose()` on the API from the first `init()` tears everything down.
 
 ## License
 

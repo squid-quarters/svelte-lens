@@ -1,5 +1,6 @@
 import type { Plugin, SvelteLensAPI } from "./types.js";
 import { init as coreInit } from "./core/index.svelte.js";
+import { isBorrowedApi } from "./core/borrowed.js";
 
 const flushPendingPlugins = (api: SvelteLensAPI): void => {
   while (pendingPlugins.length > 0) {
@@ -35,6 +36,9 @@ const init = (options?: import("./types.js").Options): SvelteLensAPI => {
     options = { ...options, enabled: false };
   }
   const api = coreInit(options);
+  // A repeat init() returns a handle onto the running instance, which was
+  // already set up below when it was created.
+  if (isBorrowedApi(api)) return api;
   if (api.isEnabled()) {
     setGlobalApi(api);
     flushPendingPlugins(api);

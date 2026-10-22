@@ -4,11 +4,11 @@ import { join } from "node:path";
 import type { Framework } from "./detect.js";
 import {
   SVELTEKIT_LAYOUT_BLOCK,
-  SVELTEKIT_LAYOUT_FILE,
   VITE_SVELTE_IMPORT,
   lensOnMountCode,
   lensScriptImport,
   sveltekitLayoutBlock,
+  sveltekitLayoutFile,
 } from "./templates.js";
 
 export interface TransformResult {
@@ -67,6 +67,22 @@ const detectIndent = (...sources: string[]): string => {
   }
   return "  ";
 };
+
+// sv create writes tsconfig.json for TypeScript projects (jsconfig.json
+// otherwise), so new script blocks follow the project's language.
+const isTypeScriptProject = (projectRoot: string): boolean =>
+  existsSync(join(projectRoot, "tsconfig.json"));
+
+const readIfExists = (path: string): string =>
+  existsSync(path) ? readFileSync(path, "utf-8") : "";
+
+// For a file created from scratch: indent like the project's other templates.
+const projectIndent = (projectRoot: string): string =>
+  detectIndent(
+    ...["src/routes/+page.svelte", "src/app.html"].map((file) =>
+      readIfExists(join(projectRoot, file)),
+    ),
+  );
 
 interface ScriptBlock {
   start: number;
@@ -182,7 +198,7 @@ const transformSvelteKit = (projectRoot: string): TransformResult => {
       filePath: fallbackPath,
       message: "Will create src/routes/+layout.svelte",
       originalContent: "",
-      newContent: SVELTEKIT_LAYOUT_FILE,
+      newContent: sveltekitLayoutFile(projectIndent(projectRoot), isTypeScriptProject(projectRoot)),
     };
   }
 
@@ -230,7 +246,10 @@ const transformSvelteKit = (projectRoot: string): TransformResult => {
   }
 
   // No component script — prepend the full block
-  const newContent = `${sveltekitLayoutBlock(detectIndent(originalContent))}\n\n${originalContent}`;
+  const newContent = `${sveltekitLayoutBlock(
+    detectIndent(originalContent),
+    isTypeScriptProject(projectRoot),
+  )}\n\n${originalContent}`;
 
   return {
     success: true,

@@ -82,4 +82,10 @@ describe("formatHtmlPreview", () => {
     div.innerHTML = "<p>Nested paragraph</p>";
     expect(formatHtmlPreview(div)).toBe("<div>(1 children)</div>");
   });
+
+  it("notes block children that the text leaves out", () => {
+    const a = document.createElement("a");
+    a.innerHTML = "<div>Title</div><span>Sub</span>";
+    expect(formatHtmlPreview(a)).toBe("<a>Sub (+1 children)</a>");
+  });
 });

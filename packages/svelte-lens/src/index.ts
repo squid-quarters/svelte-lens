@@ -35,6 +35,8 @@ const init = (options?: import("./types.js").Options): SvelteLensAPI => {
     options = { ...options, enabled: false };
   }
   const api = coreInit(options);
+  // A repeat init() returns the running instance, already set up below.
+  if (api === globalApi) return api;
   if (api.isEnabled()) {
     setGlobalApi(api);
     flushPendingPlugins(api);

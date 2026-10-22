@@ -136,6 +136,41 @@ describe("core/index.svelte.ts — init()", () => {
     expect(next.isEnabled()).toBe(true);
   });
 
+  it("a repeat init() returns the running instance", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+
+    expect(init()).toBe(first);
+    expect(warn).not.toHaveBeenCalled();
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
+
+    // Plugins registered through the returned API reach the live instance.
+    init().registerPlugin({ name: "late" });
+    expect(first.getPlugins()).toContain("late");
+  });
+
+  it("warns that options passed to a repeat init() are ignored", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+
+    expect(init({ activationMode: "hold" })).toBe(first);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/already running/));
+  });
+
+  it("starts a fresh instance after dispose()", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    first.dispose();
+    const second = init();
+    cleanup = second.dispose;
+    expect(second).not.toBe(first);
+    expect(second.isEnabled()).toBe(true);
+  });
+
   it("a disposed API cannot be activated again", async () => {
     const observe = vi.spyOn(MutationObserver.prototype, "observe");
     const { init } = await import("../core/index.svelte.js");
@@ -166,7 +201,7 @@ describe("core/index.svelte.ts — init()", () => {
     expect(window.__SVELTE_LENS__).toBe(second);
     expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
     // The init guard still belongs to the live instance.
-    expect(init().isEnabled()).toBe(false);
+    expect(init()).toBe(second);
   });
 
   it("dispose clears window.__SVELTE_LENS__ when set", async () => {

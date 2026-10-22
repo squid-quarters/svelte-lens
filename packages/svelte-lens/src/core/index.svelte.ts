@@ -72,10 +72,13 @@ type ModifierKey = "Meta" | "Control" | "Alt" | "Shift";
 const MODIFIER_KEYS = new Set<string>(["Meta", "Control", "Alt", "Shift"]);
 
 interface InitGuards {
-  hasBeenInited: boolean;
+  // The running instance, so a repeat init() (e.g. a plugin snippet next to
+  // the Quick Start code) gets it rather than an API that silently does
+  // nothing.
+  liveApi: SvelteLensAPI | null;
 }
 
-const guards: InitGuards = { hasBeenInited: false };
+const guards: InitGuards = { liveApi: null };
 
 export const init = (rawOptions?: Options): SvelteLensAPI => {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -84,10 +87,15 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   if (rawOptions?.enabled === false) {
     return createNoopApi();
   }
-  if (guards.hasBeenInited) {
-    return createNoopApi();
+  if (guards.liveApi) {
+    if (rawOptions && Object.values(rawOptions).some((value) => value !== undefined)) {
+      console.warn(
+        "[svelte-lens] init() called while svelte-lens is already running; its options " +
+          "were ignored. Use setOptions() on the returned API to change them.",
+      );
+    }
+    return guards.liveApi;
   }
-  guards.hasBeenInited = true;
 
   const initialOptions: SettableOptions = {
     activationMode: rawOptions?.activationMode,
@@ -652,7 +660,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       if (mounted) void unmount(mounted);
       mounted = null;
       destroyMountRoot();
-      guards.hasBeenInited = false;
+      if (guards.liveApi === api) guards.liveApi = null;
       if (typeof window !== "undefined" && window.__SVELTE_LENS__ === api) {
         delete window.__SVELTE_LENS__;
       }
@@ -663,6 +671,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     pluginRegistry.register(builtin, api);
   }
 
+  guards.liveApi = api;
   return api;
 };
 

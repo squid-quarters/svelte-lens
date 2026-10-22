@@ -154,4 +154,23 @@ describe("index.ts public API", () => {
     expect(getGlobalApi()).toBe(second);
     expect(window.__SVELTE_LENS__).toBe(second);
   });
+
+  it("a repeat init() returns the running instance without re-announcing it", async () => {
+    const { getGlobalApi, init } = await import("../index.js");
+    const announced = vi.fn();
+    window.addEventListener("svelte-lens:init", announced);
+    const first = init();
+    cleanup = first.dispose;
+
+    expect(init()).toBe(first);
+    expect(getGlobalApi()).toBe(first);
+    expect(announced).toHaveBeenCalledTimes(1);
+    window.removeEventListener("svelte-lens:init", announced);
+
+    // One dispose still tears it down and clears the global.
+    first.dispose();
+    cleanup = null;
+    expect(getGlobalApi()).toBeNull();
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(0);
+  });
 });

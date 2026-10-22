@@ -338,6 +338,27 @@ ${style}`);
     const { warnings } = compile(out, { filename: "+layout.svelte", runes: true });
     expect(warnings).toEqual([]);
   });
+
+  it("creates the layout in TypeScript with the project's tab indentation", () => {
+    writeFileSync(join(root, "tsconfig.json"), "{}");
+    mkdirSync(join(root, "src/routes"), { recursive: true });
+    writeFileSync(join(root, "src/routes/+page.svelte"), "<script>\n\tlet x = 1;\n</script>\n");
+    const out = previewTransform(root, "sveltekit").newContent ?? "";
+    expect(out.startsWith('<script lang="ts">\n\timport { onMount } from "svelte";')).toBe(true);
+    expect(out).toContain("\t\tif (import.meta.env.DEV)");
+    expect(out).not.toMatch(/^ {2}\S/m);
+  });
+
+  it("creates a plain-JS layout with two-space indentation when nothing says otherwise", () => {
+    const out = previewTransform(root, "sveltekit").newContent ?? "";
+    expect(out.startsWith('<script>\n  import { onMount } from "svelte";')).toBe(true);
+  });
+
+  it("prepends a TypeScript script block to a script-less layout in a TS project", () => {
+    writeFileSync(join(root, "tsconfig.json"), "{}");
+    const out = mergeLayout("<div>\n\t{@render children()}\n</div>\n");
+    expect(out.startsWith('<script lang="ts">\n\timport { onMount } from "svelte";')).toBe(true);
+  });
 });
 
 describe("previewTransform (vite-svelte)", () => {

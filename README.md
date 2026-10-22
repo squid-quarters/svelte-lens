@@ -81,7 +81,7 @@ The server exposes one tool, `get_element_context`, which returns the most recen
 // In your root layout's onMount, alongside or instead of the Quick start code:
 if (import.meta.env.DEV) {
   import("@gear-null/svelte-lens").then((m) => {
-    m.init(); // no-op if svelte-lens is already running
+    m.init(); // returns the running instance if there is one
     m.registerPlugin({
       name: "mcp-bridge",
       hooks: {

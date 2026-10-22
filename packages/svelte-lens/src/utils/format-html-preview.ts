@@ -61,30 +61,40 @@ const INLINE_TAGS = new Set([
   "var",
 ]);
 
-const getDirectText = (element: Element): string => {
+// The element's own text, including inline descendants', plus how many block
+// (non-inline) descendants were left out of it.
+const getDirectText = (element: Element): { text: string; blockCount: number } => {
   let text = "";
+  let blockCount = 0;
   const collect = (parent: Element): void => {
     for (const node of Array.from(parent.childNodes)) {
       if (node.nodeType === Node.TEXT_NODE) {
         text += node.textContent ?? "";
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         const child = node as Element;
-        // Block children are summarised elsewhere; keep a word break.
-        if (INLINE_TAGS.has(getTagName(child))) collect(child);
-        else text += " ";
+        if (INLINE_TAGS.has(getTagName(child))) {
+          collect(child);
+        } else {
+          // Summarised by count below; keep a word break.
+          blockCount += 1;
+          text += " ";
+        }
       }
     }
   };
   collect(element);
-  return text.replace(/\s+/g, " ").trim();
+  return { text: text.replace(/\s+/g, " ").trim(), blockCount };
 };
 
 export const formatHtmlPreview = (element: Element): string => {
   const tagName = getTagName(element);
   const attrs = formatAttrs(element);
-  const text = truncateString(getDirectText(element), PREVIEW_TEXT_MAX_LENGTH);
+  const direct = getDirectText(element);
+  const text = truncateString(direct.text, PREVIEW_TEXT_MAX_LENGTH);
   if (text) {
-    return `<${tagName}${attrs}>${escapeHtml(text)}</${tagName}>`;
+    // Note block children the text leaves out, e.g. <a><div>Title</div>Sub</a>.
+    const more = direct.blockCount > 0 ? ` (+${direct.blockCount} children)` : "";
+    return `<${tagName}${attrs}>${escapeHtml(text)}${more}</${tagName}>`;
   }
   const childCount = element.children.length;
   if (childCount > 0) {

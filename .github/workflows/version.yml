@@ -34,6 +34,7 @@ jobs:
     if: "${{ !startsWith(github.event.head_commit.message, 'chore: version packages') }}"
     outputs:
       pr: ${{ steps.changesets.outputs.pullRequestNumber }}
+      sha: ${{ steps.pushed.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
         with:
@@ -64,19 +65,48 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # PR events caused by GITHUB_TOKEN only create CI runs that wait for a
-  # maintainer's approval, so the Version PR's required checks would not
-  # report on their own. workflow_dispatch runs start immediately.
-  # A separate job keeps actions: write away from the install and
-  # changeset code above: with it, that code could dispatch release.yml.
-  dispatch-ci:
+      # changesets/action leaves the commit it pushed checked out.
+      - name: Record the pushed commit
+        id: pushed
+        if: steps.changesets.outputs.pullRequestNumber != ''
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # The Version PR is pushed with GITHUB_TOKEN, whose pull_request runs
+  # wait for a maintainer's approval (and dispatched runs don't count for
+  # branch protection), so its required checks would never report. An empty
+  # commit pushed with a GitHub App token triggers CI normally.
+  # A separate job keeps the App token away from the dependency and
+  # changeset code above: this job installs nothing and runs only pinned
+  # first-party actions and git.
+  trigger-ci:
     name: Run CI on the Version PR
     needs: version
-    if: needs.version.outputs.pr != ''
+    if: github.ref == 'refs/heads/main' && needs.version.outputs.pr != ''
     runs-on: ubuntu-latest
-    permissions:
-      actions: write
+    permissions: {}
     steps:
-      - run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "changeset-release/$GITHUB_REF_NAME"
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # pin@v3.3.0
+        with:
+          client-id: ${{ vars.VERSION_PR_APP_CLIENT_ID }}
+          private-key: ${{ secrets.VERSION_PR_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+        with:
+          # The exact commit the version job pushed, not whatever the
+          # branch points to now.
+          ref: ${{ needs.version.outputs.sha }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Push an empty commit as the App
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "ci: run checks on the Version PR"
+          # Not forced, so it only lands if the branch still points at that
+          # commit; if it moved, a newer version run handles it.
+          git push origin "HEAD:refs/heads/changeset-release/$GITHUB_REF_NAME"

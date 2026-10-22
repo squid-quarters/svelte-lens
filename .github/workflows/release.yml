@@ -31,6 +31,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Publish only code that reached protected main through review. The
+      # Version PR's App token can push branches and create releases, so a
+      # release (or manual run) pointing anywhere else must not publish.
+      - name: Verify the commit is on main
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$(git rev-parse HEAD) is not on main; refusing to publish."
+            exit 1
+          fi
+
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # pin@v6.1.0
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # pin@v7.1.0

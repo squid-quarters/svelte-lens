@@ -26,17 +26,19 @@ jobs:
   version:
     name: Version
     runs-on: ubuntu-latest
+    # The push and the Version PR use the App token below, so the default
+    # GITHUB_TOKEN only needs to read the repo.
     permissions:
-      contents: write          # for the version-bump commit
-      pull-requests: write     # for the Version PR
+      contents: read
     # Don't run on the version-bump commit itself — publishing is a
     # separate step triggered by creating a GitHub Release.
     if: "${{ !startsWith(github.event.head_commit.message, 'chore: version packages') }}"
-    outputs:
-      pr: ${{ steps.changesets.outputs.pullRequestNumber }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
         with:
+          # Otherwise git pushes with the saved GITHUB_TOKEN header instead of
+          # the App token changesets/action configures, and CI never runs.
+          persist-credentials: false
           # changesets/action needs full git history to generate changelogs.
           fetch-depth: 0
 
@@ -48,6 +50,21 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Events caused by GITHUB_TOKEN don't trigger workflows (pull_request
+      # runs wait for approval), so the Version PR's required checks would
+      # never report. A GitHub App token's events trigger CI normally.
+      # Created after install and scoped to this repo with only the access
+      # the Version PR needs; revoked when the job ends.
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # pin@v3.3.0
+        with:
+          client-id: ${{ vars.VERSION_PR_APP_CLIENT_ID }}
+          private-key: ${{ secrets.VERSION_PR_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Create or Update Version PR
         id: changesets
@@ -62,21 +79,4 @@ jobs:
           title: "chore: version packages"
           commit: "chore: version packages"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # PR events caused by GITHUB_TOKEN only create CI runs that wait for a
-  # maintainer's approval, so the Version PR's required checks would not
-  # report on their own. workflow_dispatch runs start immediately.
-  # A separate job keeps actions: write away from the install and
-  # changeset code above: with it, that code could dispatch release.yml.
-  dispatch-ci:
-    name: Run CI on the Version PR
-    needs: version
-    if: needs.version.outputs.pr != ''
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "changeset-release/$GITHUB_REF_NAME"
-        env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

@@ -21,9 +21,9 @@ jobs:
   release:
     name: Publish to npm
     runs-on: ubuntu-latest
-    # The npm trusted publisher is bound to this environment, and the
-    # environment only accepts release tags and main (for manual runs). A
-    # run without it, e.g. from an older release.yml, can't publish.
+    # The environment only accepts release tags and main (for manual runs).
+    # Once the npm trusted publisher is bound to it (#62, step 3), a run
+    # without it, e.g. from an older release.yml, can't publish.
     environment: npm-publish
     permissions:
       id-token: write # for npm OIDC trusted publishing + provenance

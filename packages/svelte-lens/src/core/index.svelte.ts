@@ -73,12 +73,41 @@ const MODIFIER_KEYS = new Set<string>(["Meta", "Control", "Alt", "Shift"]);
 
 interface InitGuards {
   // The running instance, so a repeat init() (e.g. a plugin snippet next to
-  // the Quick Start code) gets it rather than an API that silently does
+  // the Quick Start code) reaches it rather than an API that silently does
   // nothing.
   liveApi: SvelteLensAPI | null;
 }
 
 const guards: InitGuards = { liveApi: null };
+
+const borrowedApis = new WeakSet<SvelteLensAPI>();
+
+/** Whether an API object is a repeat init()'s handle onto another instance. */
+export const isBorrowedApi = (api: SvelteLensAPI): boolean => borrowedApis.has(api);
+
+// A repeat init()'s handle: it drives the running instance, but its
+// dispose() only removes the plugins registered through it, so a component
+// cleaning up after itself can't shut svelte-lens down for everyone else.
+const borrowApi = (live: SvelteLensAPI): SvelteLensAPI => {
+  const registered = new Set<string>();
+  const borrowed: SvelteLensAPI = {
+    ...live,
+    registerPlugin: (plugin: Plugin) => {
+      registered.add(plugin.name);
+      live.registerPlugin(plugin);
+    },
+    unregisterPlugin: (name: string) => {
+      registered.delete(name);
+      live.unregisterPlugin(name);
+    },
+    dispose: () => {
+      for (const name of registered) live.unregisterPlugin(name);
+      registered.clear();
+    },
+  };
+  borrowedApis.add(borrowed);
+  return borrowed;
+};
 
 export const init = (rawOptions?: Options): SvelteLensAPI => {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -88,13 +117,16 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     return createNoopApi();
   }
   if (guards.liveApi) {
-    if (rawOptions && Object.values(rawOptions).some((value) => value !== undefined)) {
+    const ignored = Object.entries(rawOptions ?? {}).some(
+      ([key, value]) => key !== "enabled" && value !== undefined,
+    );
+    if (ignored) {
       console.warn(
         "[svelte-lens] init() called while svelte-lens is already running; its options " +
           "were ignored. Use setOptions() on the returned API to change them.",
       );
     }
-    return guards.liveApi;
+    return borrowApi(guards.liveApi);
   }
 
   const initialOptions: SettableOptions = {

@@ -139,6 +139,8 @@ api.registerPlugin({
 });
 ```
 
+Calling `init()` again while svelte-lens is running, for example from a component, returns a handle to the running instance. That handle's `dispose()` removes only the plugins registered through it; `dispose()` on the API from the first `init()` tears everything down.
+
 Hooks go under `hooks` (or in the `{ hooks }` object returned from `setup(api)`). Available hooks: `onActivate`, `onDeactivate`, `onElementSelect`, `onBeforeCopy`, `transformCopyContent`, `onAfterCopy`, `onCopyError`, `onContextMenu`.
 
 Built-in plugins: `copyPlugin` (clipboard copy), `openPlugin` (open source in editor).

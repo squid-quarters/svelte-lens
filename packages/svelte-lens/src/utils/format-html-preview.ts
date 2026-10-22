@@ -63,6 +63,41 @@ const INLINE_TAGS = new Set([
 
 // The element's own text, including inline descendants', plus how many block
 // (non-inline) descendants were left out of it.
+// Block-level elements. Other non-inline children (br, img, svg, input,
+// button...) sit inside a line of text, so they aren't "left out" of it.
+const BLOCK_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "details",
+  "dialog",
+  "div",
+  "dl",
+  "fieldset",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hgroup",
+  "hr",
+  "li",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "ul",
+]);
+
 const getDirectText = (element: Element): { text: string; blockCount: number } => {
   let text = "";
   let blockCount = 0;
@@ -72,11 +107,12 @@ const getDirectText = (element: Element): { text: string; blockCount: number } =
         text += node.textContent ?? "";
       } else if (node.nodeType === Node.ELEMENT_NODE) {
         const child = node as Element;
-        if (INLINE_TAGS.has(getTagName(child))) {
+        const tag = getTagName(child);
+        if (INLINE_TAGS.has(tag)) {
           collect(child);
         } else {
-          // Summarised by count below; keep a word break.
-          blockCount += 1;
+          // Block children are summarised by count below; keep a word break.
+          if (BLOCK_TAGS.has(tag)) blockCount += 1;
           text += " ";
         }
       }

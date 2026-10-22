@@ -155,17 +155,24 @@ describe("index.ts public API", () => {
     expect(window.__SVELTE_LENS__).toBe(second);
   });
 
-  it("a repeat init() returns the running instance without re-announcing it", async () => {
+  it("a repeat init() reaches the running instance without re-announcing it", async () => {
     const { getGlobalApi, init } = await import("../index.js");
     const announced = vi.fn();
     window.addEventListener("svelte-lens:init", announced);
     const first = init();
     cleanup = first.dispose;
 
-    expect(init()).toBe(first);
+    const again = init();
+    again.registerPlugin({ name: "late" });
+    expect(first.getPlugins()).toContain("late");
     expect(getGlobalApi()).toBe(first);
     expect(announced).toHaveBeenCalledTimes(1);
     window.removeEventListener("svelte-lens:init", announced);
+
+    // The repeat handle's dispose() leaves the shared instance running.
+    again.dispose();
+    expect(getGlobalApi()).toBe(first);
+    expect(first.isEnabled()).toBe(true);
 
     // One dispose still tears it down and clears the global.
     first.dispose();

@@ -113,6 +113,8 @@ api.setEnabled(false);
 api.dispose();
 ```
 
+Calling `init()` again while svelte-lens is running, for example from a component, returns a handle to the running instance. That handle's `dispose()` removes only the plugins registered through it; `dispose()` on the API from the first `init()` tears everything down.
+
 ## License
 
 MIT

@@ -349,6 +349,16 @@ ${style}`);
     expect(out).not.toMatch(/^ {2}\S/m);
   });
 
+  it("takes a new layout's indentation from app.html, as in a fresh sv create app", () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, "src/app.html"),
+      "<!doctype html>\n<html>\n\t<head></head>\n</html>\n",
+    );
+    const out = previewTransform(root, "sveltekit").newContent ?? "";
+    expect(out).toContain('\timport { onMount } from "svelte";');
+  });
+
   it("creates a plain-JS layout with two-space indentation when nothing says otherwise", () => {
     const out = previewTransform(root, "sveltekit").newContent ?? "";
     expect(out.startsWith('<script>\n  import { onMount } from "svelte";')).toBe(true);

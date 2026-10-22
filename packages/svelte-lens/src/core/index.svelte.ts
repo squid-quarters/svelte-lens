@@ -34,6 +34,7 @@ import { createPluginRegistry } from "./plugin-registry.svelte.js";
 import { resolveSource, getStackContext } from "./source.js";
 import { copyPlugin } from "./plugins/copy.js";
 import { openPlugin } from "./plugins/open.js";
+import { markBorrowed } from "./borrowed.js";
 
 const noop = (): void => {};
 
@@ -71,43 +72,19 @@ const isDefaultActivationCombo = (event: KeyboardEvent): boolean =>
 type ModifierKey = "Meta" | "Control" | "Alt" | "Shift";
 const MODIFIER_KEYS = new Set<string>(["Meta", "Control", "Alt", "Shift"]);
 
+interface LiveInstance {
+  api: SvelteLensAPI;
+  borrow: () => SvelteLensAPI;
+}
+
 interface InitGuards {
   // The running instance, so a repeat init() (e.g. a plugin snippet next to
   // the Quick Start code) reaches it rather than an API that silently does
   // nothing.
-  liveApi: SvelteLensAPI | null;
+  live: LiveInstance | null;
 }
 
-const guards: InitGuards = { liveApi: null };
-
-const borrowedApis = new WeakSet<SvelteLensAPI>();
-
-/** Whether an API object is a repeat init()'s handle onto another instance. */
-export const isBorrowedApi = (api: SvelteLensAPI): boolean => borrowedApis.has(api);
-
-// A repeat init()'s handle: it drives the running instance, but its
-// dispose() only removes the plugins registered through it, so a component
-// cleaning up after itself can't shut svelte-lens down for everyone else.
-const borrowApi = (live: SvelteLensAPI): SvelteLensAPI => {
-  const registered = new Set<string>();
-  const borrowed: SvelteLensAPI = {
-    ...live,
-    registerPlugin: (plugin: Plugin) => {
-      registered.add(plugin.name);
-      live.registerPlugin(plugin);
-    },
-    unregisterPlugin: (name: string) => {
-      registered.delete(name);
-      live.unregisterPlugin(name);
-    },
-    dispose: () => {
-      for (const name of registered) live.unregisterPlugin(name);
-      registered.clear();
-    },
-  };
-  borrowedApis.add(borrowed);
-  return borrowed;
-};
+const guards: InitGuards = { live: null };
 
 export const init = (rawOptions?: Options): SvelteLensAPI => {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -116,7 +93,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   if (rawOptions?.enabled === false) {
     return createNoopApi();
   }
-  if (guards.liveApi) {
+  if (guards.live) {
     const ignored = Object.entries(rawOptions ?? {}).some(
       ([key, value]) => key !== "enabled" && value !== undefined,
     );
@@ -126,7 +103,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
           "were ignored. Use setOptions() on the returned API to change them.",
       );
     }
-    return borrowApi(guards.liveApi);
+    return guards.live.borrow();
   }
 
   const initialOptions: SettableOptions = {
@@ -692,7 +669,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       if (mounted) void unmount(mounted);
       mounted = null;
       destroyMountRoot();
-      if (guards.liveApi === api) guards.liveApi = null;
+      if (guards.live?.api === api) guards.live = null;
       if (typeof window !== "undefined" && window.__SVELTE_LENS__ === api) {
         delete window.__SVELTE_LENS__;
       }
@@ -703,7 +680,32 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     pluginRegistry.register(builtin, api);
   }
 
-  guards.liveApi = api;
+  // A repeat init()'s handle: it drives this instance, but its dispose()
+  // only removes the plugins registered through it (if they haven't been
+  // replaced since), so a component cleaning up after itself can't shut
+  // svelte-lens down for everyone else.
+  const borrow = (): SvelteLensAPI => {
+    const registered = new Map<string, Plugin>();
+    return markBorrowed({
+      ...api,
+      registerPlugin: (plugin: Plugin) => {
+        registered.set(plugin.name, plugin);
+        api.registerPlugin(plugin);
+      },
+      unregisterPlugin: (name: string) => {
+        registered.delete(name);
+        api.unregisterPlugin(name);
+      },
+      dispose: () => {
+        for (const [name, plugin] of registered) {
+          if (pluginRegistry.isRegistered(plugin)) api.unregisterPlugin(name);
+        }
+        registered.clear();
+      },
+    });
+  };
+
+  guards.live = { api, borrow };
   return api;
 };
 

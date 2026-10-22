@@ -61,8 +61,6 @@ const INLINE_TAGS = new Set([
   "var",
 ]);
 
-// The element's own text, including inline descendants', plus how many block
-// (non-inline) descendants were left out of it.
 // Block-level elements. Other non-inline children (br, img, svg, input,
 // button...) sit inside a line of text, so they aren't "left out" of it.
 const BLOCK_TAGS = new Set([
@@ -98,6 +96,8 @@ const BLOCK_TAGS = new Set([
   "ul",
 ]);
 
+// The element's own text, including inline descendants', plus how many block
+// descendants were left out of it.
 const getDirectText = (element: Element): { text: string; blockCount: number } => {
   let text = "";
   let blockCount = 0;

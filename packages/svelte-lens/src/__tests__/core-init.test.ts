@@ -169,6 +169,31 @@ describe("core/index.svelte.ts — init()", () => {
     expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
   });
 
+  it("a repeat init()'s dispose() leaves a same-named plugin registered by someone else", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const first = init();
+    cleanup = first.dispose;
+    const cleanupOwner = vi.fn();
+
+    // The owner re-registers the name after a borrowed handle did.
+    const borrowed = init();
+    borrowed.registerPlugin({ name: "x" });
+    first.registerPlugin({ name: "x", setup: () => ({ cleanup: cleanupOwner }) });
+    borrowed.dispose();
+    expect(first.getPlugins()).toContain("x");
+    expect(cleanupOwner).not.toHaveBeenCalled();
+
+    // Two borrowed handles (e.g. two mounted components) using one name.
+    const h1 = init();
+    const h2 = init();
+    h1.registerPlugin({ name: "y" });
+    h2.registerPlugin({ name: "y" });
+    h1.dispose();
+    expect(first.getPlugins()).toContain("y");
+    h2.dispose();
+    expect(first.getPlugins()).not.toContain("y");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");

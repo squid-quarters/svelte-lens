@@ -1,5 +1,6 @@
 import type { Plugin, SvelteLensAPI } from "./types.js";
-import { init as coreInit, isBorrowedApi } from "./core/index.svelte.js";
+import { init as coreInit } from "./core/index.svelte.js";
+import { isBorrowedApi } from "./core/borrowed.js";
 
 const flushPendingPlugins = (api: SvelteLensAPI): void => {
   while (pendingPlugins.length > 0) {

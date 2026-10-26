@@ -211,6 +211,60 @@ describe("core/index.svelte.ts — init()", () => {
     expect(first.getPlugins()).not.toContain("shared");
   });
 
+  it("keeps running until every init() caller has disposed, in either order", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const hosts = () => document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length;
+
+    // The first caller disposes first (e.g. a page mounted before the layout).
+    const a = init();
+    const b = init();
+    a.dispose();
+    expect(b.isEnabled()).toBe(true);
+    expect(hosts()).toBe(1);
+    b.dispose();
+    expect(b.isEnabled()).toBe(false);
+    expect(hosts()).toBe(0);
+
+    // And the other way round.
+    const c = init();
+    const d = init();
+    d.dispose();
+    expect(c.isEnabled()).toBe(true);
+    c.dispose();
+    expect(hosts()).toBe(0);
+  });
+
+  it("the instance's own dispose() tears everything down regardless of handles", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
+    const a = init();
+    const b = init();
+    instanceOf(a)!.dispose();
+    expect(a.isEnabled()).toBe(false);
+    expect(b.isEnabled()).toBe(false);
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(0);
+    // Disposing the handles afterwards is harmless, and a new init() works.
+    a.dispose();
+    b.dispose();
+    const fresh = init();
+    cleanup = fresh.dispose;
+    expect(fresh.isEnabled()).toBe(true);
+  });
+
+  it("brings back a built-in plugin that a handle's plugin had replaced", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+
+    const handle = init();
+    const cleanupOverride = vi.fn();
+    handle.registerPlugin({ name: "copy", setup: () => ({ cleanup: cleanupOverride }) });
+    handle.dispose();
+
+    expect(cleanupOverride).toHaveBeenCalledTimes(1);
+    expect(owner.getPlugins()).toContain("copy");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");
@@ -250,15 +304,16 @@ describe("core/index.svelte.ts — init()", () => {
 
   it("disposing a stale API twice leaves a newer instance intact", async () => {
     const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
     const first = init();
     first.dispose();
     const second = init();
     cleanup = second.dispose;
-    window.__SVELTE_LENS__ = second;
+    window.__SVELTE_LENS__ = instanceOf(second);
 
     first.dispose();
 
-    expect(window.__SVELTE_LENS__).toBe(second);
+    expect(window.__SVELTE_LENS__).toBe(instanceOf(second));
     expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
     // The init guard still belongs to the live instance.
     expect(init().isEnabled()).toBe(true);
@@ -267,11 +322,12 @@ describe("core/index.svelte.ts — init()", () => {
 
   it("dispose clears window.__SVELTE_LENS__ when set", async () => {
     const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
     const api = init();
     cleanup = api.dispose;
 
-    // Manually set window.__SVELTE_LENS__ as the index.ts wrapper does
-    window.__SVELTE_LENS__ = api;
+    // Manually set window.__SVELTE_LENS__ to the instance, as index.ts does
+    window.__SVELTE_LENS__ = instanceOf(api);
     expect(window.__SVELTE_LENS__).toBeDefined();
 
     api.dispose();

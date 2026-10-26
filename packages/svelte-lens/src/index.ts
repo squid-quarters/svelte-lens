@@ -1,6 +1,6 @@
 import type { Plugin, SvelteLensAPI } from "./types.js";
 import { init as coreInit } from "./core/index.svelte.js";
-import { isBorrowedApi } from "./core/borrowed.js";
+import { instanceOf } from "./core/handles.js";
 
 const flushPendingPlugins = (api: SvelteLensAPI): void => {
   while (pendingPlugins.length > 0) {
@@ -35,26 +35,27 @@ const init = (options?: import("./types.js").Options): SvelteLensAPI => {
     );
     options = { ...options, enabled: false };
   }
-  const api = coreInit(options);
-  // A repeat init() returns a handle onto the running instance, which was
-  // already set up below when it was created.
-  if (isBorrowedApi(api)) return api;
-  if (api.isEnabled()) {
-    setGlobalApi(api);
-    flushPendingPlugins(api);
+  const handle = coreInit(options);
+  // Each init() returns its own handle; the shared instance behind them is
+  // what's exposed globally, and it's set up only once.
+  const instance = instanceOf(handle);
+  if (!instance || instance === globalApi) return handle;
+  if (instance.isEnabled()) {
+    setGlobalApi(instance);
+    flushPendingPlugins(instance);
     // Dispatch event for plugin integrations — only on explicit init.
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("svelte-lens:init", { detail: api }));
+      window.dispatchEvent(new CustomEvent("svelte-lens:init", { detail: instance }));
     }
     // Wrap dispose so the module-level globalApi is also cleared, unless a
     // newer instance has replaced it (a stale handle disposed again).
-    const origDispose = api.dispose.bind(api);
-    api.dispose = () => {
+    const origDispose = instance.dispose.bind(instance);
+    instance.dispose = () => {
       origDispose();
-      if (globalApi === api) setGlobalApi(null);
+      if (globalApi === instance) setGlobalApi(null);
     };
   }
-  return api;
+  return handle;
 };
 
 export { init };

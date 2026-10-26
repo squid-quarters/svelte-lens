@@ -34,7 +34,7 @@ import { createPluginRegistry } from "./plugin-registry.svelte.js";
 import { resolveSource, getStackContext } from "./source.js";
 import { copyPlugin } from "./plugins/copy.js";
 import { openPlugin } from "./plugins/open.js";
-import { markBorrowed } from "./borrowed.js";
+import { markHandle } from "./handles.js";
 
 const noop = (): void => {};
 
@@ -74,7 +74,7 @@ const MODIFIER_KEYS = new Set<string>(["Meta", "Control", "Alt", "Shift"]);
 
 interface LiveInstance {
   api: SvelteLensAPI;
-  borrow: () => SvelteLensAPI;
+  createHandle: () => SvelteLensAPI;
 }
 
 interface InitGuards {
@@ -103,7 +103,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
           "were ignored. Use setOptions() on the returned API to change them.",
       );
     }
-    return guards.live.borrow();
+    return guards.live.createHandle();
   }
 
   const initialOptions: SettableOptions = {
@@ -680,49 +680,87 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     pluginRegistry.register(builtin, api);
   }
 
-  // A repeat init()'s handle: it drives this instance, but its dispose()
-  // only removes the plugins registered through it (if they haven't been
-  // replaced since), so a component cleaning up after itself can't shut
-  // svelte-lens down for everyone else.
+  // Every init() caller gets its own handle onto this instance. svelte-lens
+  // keeps running until every handle is disposed, so mount order doesn't
+  // matter: Svelte runs a page's onMount before the root layout's, so a page's
+  // init() can come first, and its cleanup must not shut down the layout's.
+  // A handle's dispose() removes only the plugins registered through it and
+  // brings back any plugin one of them had replaced (e.g. a built-in).
+  let openHandles = 0;
   // Handles holding each plugin object, so a shared plugin constant used by
   // two mounted components survives the first one's cleanup.
-  const borrowedHolds = new Map<Plugin, number>();
-  const borrow = (): SvelteLensAPI => {
-    const registered = new Map<string, Plugin>();
-    const release = (plugin: Plugin): number => {
-      const holds = (borrowedHolds.get(plugin) ?? 1) - 1;
-      if (holds > 0) borrowedHolds.set(plugin, holds);
-      else borrowedHolds.delete(plugin);
-      return holds;
-    };
-    return markBorrowed({
-      ...api,
-      registerPlugin: (plugin: Plugin) => {
-        const previous = registered.get(plugin.name);
-        if (previous) release(previous);
-        registered.set(plugin.name, plugin);
-        borrowedHolds.set(plugin, (borrowedHolds.get(plugin) ?? 0) + 1);
-        api.registerPlugin(plugin);
-      },
-      unregisterPlugin: (name: string) => {
-        const plugin = registered.get(name);
-        if (plugin) release(plugin);
-        registered.delete(name);
-        api.unregisterPlugin(name);
-      },
-      dispose: () => {
-        for (const [name, plugin] of registered) {
-          if (release(plugin) === 0 && pluginRegistry.isRegistered(plugin)) {
-            api.unregisterPlugin(name);
-          }
-        }
-        registered.clear();
-      },
-    });
+  const holds = new Map<Plugin, { count: number; replaced: Plugin | undefined }>();
+
+  const hold = (plugin: Plugin): void => {
+    const entry = holds.get(plugin);
+    if (entry) {
+      entry.count += 1;
+      return;
+    }
+    const current = pluginRegistry.getPlugin(plugin.name);
+    // If another handle's plugin is being replaced, what that one had
+    // replaced in turn (possibly nothing) is what to bring back later.
+    const heldCurrent = current ? holds.get(current) : undefined;
+    const replaced = current === plugin ? undefined : heldCurrent ? heldCurrent.replaced : current;
+    holds.set(plugin, { count: 1, replaced });
   };
 
-  guards.live = { api, borrow };
-  return api;
+  const release = (plugin: Plugin): void => {
+    const entry = holds.get(plugin);
+    if (!entry) return;
+    entry.count -= 1;
+    if (entry.count > 0) return;
+    holds.delete(plugin);
+    // Leave it alone if something else has replaced it since.
+    if (!pluginRegistry.isRegistered(plugin)) return;
+    api.unregisterPlugin(plugin.name);
+    if (entry.replaced && !pluginRegistry.getPlugin(plugin.name)) {
+      api.registerPlugin(entry.replaced);
+    }
+  };
+
+  const createHandle = (): SvelteLensAPI => {
+    openHandles += 1;
+    const registered = new Map<string, Plugin>();
+    let released = false;
+    return markHandle(
+      {
+        ...api,
+        registerPlugin: (plugin: Plugin) => {
+          const earlier = registered.get(plugin.name);
+          if (earlier !== plugin) {
+            registered.set(plugin.name, plugin);
+            hold(plugin);
+          }
+          api.registerPlugin(plugin);
+          if (earlier && earlier !== plugin) release(earlier);
+        },
+        unregisterPlugin: (name: string) => {
+          const plugin = registered.get(name);
+          if (!plugin) {
+            api.unregisterPlugin(name);
+            return;
+          }
+          registered.delete(name);
+          release(plugin);
+        },
+        dispose: () => {
+          if (released) return;
+          released = true;
+          openHandles -= 1;
+          // The last handle tears the instance down with its plugins still in
+          // place, so they see the deactivation and their own cleanup.
+          if (openHandles === 0) api.dispose();
+          else for (const plugin of registered.values()) release(plugin);
+          registered.clear();
+        },
+      },
+      api,
+    );
+  };
+
+  guards.live = { api, createHandle };
+  return createHandle();
 };
 
 export {

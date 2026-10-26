@@ -1,6 +1,6 @@
 {
   "name": "@gear-null/svelte-lens",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Hover any UI element in your browser, copy its source context for AI agents. Built for Svelte 5. Includes CLI and MCP server.",
   "keywords": [
     "svelte",

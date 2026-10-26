@@ -1,5 +1,17 @@
 # @gear-null/svelte-lens
 
+## 1.0.6
+
+### Patch Changes
+
+- [#63](https://github.com/squid-quarters/svelte-lens/pull/63) [`4e57049`](https://github.com/squid-quarters/svelte-lens/commit/4e57049905d29470d6e430ff8f17946e5484a147) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Fix follow-ups from 1.0.5 release testing:
+
+  - A repeat `init()` returns a handle to the running instance instead of an API that silently does nothing, so plugins registered through it take effect. Its `dispose()` removes only those plugins, and it warns if options are passed, since they're ignored.
+  - The copied HTML preview notes block children it leaves out when the element also has text, e.g. `<a>Sub (+1 children)</a>`.
+  - `svelte-lens init` uses `<script lang="ts">` in TypeScript projects, both when it creates `+layout.svelte` and when it adds a script to a layout without one. A newly created layout uses the project's indentation.
+
+- [#65](https://github.com/squid-quarters/svelte-lens/pull/65) [`60ddcc9`](https://github.com/squid-quarters/svelte-lens/commit/60ddcc9ba2fdc1e7db875d702fb3ff6208488c9b) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Make repeat `init()` calls safe in any mount order. Every `init()` now returns its own handle onto one shared instance, and svelte-lens keeps running until every handle has been disposed. Previously, on a hard page load, a page component's `init()` (Svelte runs a child's `onMount` before its root layout's) became the owner, and the component's cleanup shut svelte-lens down app-wide. A handle's `dispose()` also restores any plugin, such as a built-in, that its plugins had replaced. `window.__SVELTE_LENS__` is now the shared instance rather than the first caller's handle. The README API examples can be pasted as-is.
+
 ## 1.0.5
 
 ### Patch Changes

@@ -48,7 +48,11 @@ it("mixed handle / direct / module-level / setup-reentrant operations", async ()
 
     const current = new Map<string, Plugin>();
     let setups = 0;
-    const make = (name: string, tag: string, extra?: (api: SvelteLensAPI) => () => void): Plugin => {
+    const make = (
+      name: string,
+      tag: string,
+      extra?: (api: SvelteLensAPI) => () => void,
+    ): Plugin => {
       const plugin: Plugin = {
         name,
         setup: (api) => {
@@ -80,7 +84,8 @@ it("mixed handle / direct / module-level / setup-reentrant operations", async ()
       helper: [make("helper", "hA"), make("helper", "hB"), helperS],
     };
     const names = ["copy", "helper"];
-    const label = (p: Plugin | undefined) => (p === copyPlugin ? "built-in" : p ? String(p) : "none");
+    const label = (p: Plugin | undefined) =>
+      p === copyPlugin ? "built-in" : p ? String(p) : "none";
 
     let live = false;
     let instance: SvelteLensAPI | undefined;
@@ -207,7 +212,11 @@ it("mixed handle / direct / module-level / setup-reentrant operations", async ()
           );
           if (kind !== "leave" || lastDirect[n] === step) return;
           if (actorHoldsBefore.get(n)?.plugin !== before[i]) {
-            check("I2", got === before[i], `${n} changed ${label(before[i])} -> ${label(got)} though the leaving handle's plugin wasn't registered`);
+            check(
+              "I2",
+              got === before[i],
+              `${n} changed ${label(before[i])} -> ${label(got)} though the leaving handle's plugin wasn't registered`,
+            );
           }
           if (got !== before[i] && got !== undefined) {
             const fresh = heldBy.some((h) => h.holds.get(n)!.t > lastDirect[n]!);
@@ -219,10 +228,15 @@ it("mixed handle / direct / module-level / setup-reentrant operations", async ()
           }
         });
         if (kind === "hregister") {
-          check("I4", registered(registeredPlugin!.name) === registeredPlugin, `${label(registeredPlugin)} not registered`);
+          check(
+            "I4",
+            registered(registeredPlugin!.name) === registeredPlugin,
+            `${label(registeredPlugin)} not registered`,
+          );
         }
         const unchanged = names.every((n, i) => registered(n) === before[i]);
-        if (unchanged && kind !== "other") check("I5", setups === setupsBefore, "setup reran without a change");
+        if (unchanged && kind !== "other")
+          check("I5", setups === setupsBefore, "setup reran without a change");
       } catch (error) {
         failures.push((error as Error).message);
         break;

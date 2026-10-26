@@ -265,6 +265,42 @@ describe("core/index.svelte.ts — init()", () => {
     expect(owner.getPlugins()).toContain("copy");
   });
 
+  it("restores the right plugin when handles replace each other", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const marks: string[] = [];
+    const plugin = (mark: string) => ({
+      name: "copy",
+      setup: () => {
+        marks.push(mark);
+        return {};
+      },
+    });
+
+    // A replaces the built-in, then B replaces A while A's handle is open.
+    const a = init();
+    const b = init();
+    a.registerPlugin(plugin("a"));
+    b.registerPlugin(plugin("b"));
+    b.dispose();
+    // A's handle is still open, so A comes back rather than the built-in.
+    expect(marks).toEqual(["a", "b", "a"]);
+    a.dispose();
+    expect(owner.getPlugins()).toContain("copy");
+
+    // Same again, but A's handle closes first: B stays, then the built-in returns.
+    marks.length = 0;
+    const c = init();
+    const d = init();
+    c.registerPlugin(plugin("c"));
+    d.registerPlugin(plugin("d"));
+    c.dispose();
+    d.dispose();
+    expect(marks).toEqual(["c", "d"]);
+    expect(owner.getPlugins()).toContain("copy");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");

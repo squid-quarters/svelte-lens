@@ -689,34 +689,45 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   let openHandles = 0;
   // Handles holding each plugin object, so a shared plugin constant used by
   // two mounted components survives the first one's cleanup.
-  const holds = new Map<Plugin, { count: number; replaced: Plugin | undefined }>();
+  const holds = new Map<Plugin, number>();
+  // The plugin each handle-registered plugin replaced. Kept after release so
+  // a restore can skip over plugins whose handles are gone.
+  const replacedBy = new WeakMap<Plugin, Plugin | undefined>();
 
   const hold = (plugin: Plugin): void => {
-    const entry = holds.get(plugin);
-    if (entry) {
-      entry.count += 1;
+    const count = holds.get(plugin);
+    if (count) {
+      holds.set(plugin, count + 1);
       return;
     }
+    holds.set(plugin, 1);
     const current = pluginRegistry.getPlugin(plugin.name);
-    // If another handle's plugin is being replaced, what that one had
-    // replaced in turn (possibly nothing) is what to bring back later.
-    const heldCurrent = current ? holds.get(current) : undefined;
-    const replaced = current === plugin ? undefined : heldCurrent ? heldCurrent.replaced : current;
-    holds.set(plugin, { count: 1, replaced });
+    if (current !== plugin) replacedBy.set(plugin, current);
+  };
+
+  // What to bring back when `plugin` goes: the nearest plugin it replaced that
+  // is still held by a handle, or one no handle registered (e.g. a built-in).
+  const restoreTarget = (plugin: Plugin): Plugin | undefined => {
+    let candidate = replacedBy.get(plugin);
+    while (candidate && !holds.has(candidate) && replacedBy.has(candidate)) {
+      candidate = replacedBy.get(candidate);
+    }
+    return candidate;
   };
 
   const release = (plugin: Plugin): void => {
-    const entry = holds.get(plugin);
-    if (!entry) return;
-    entry.count -= 1;
-    if (entry.count > 0) return;
+    const count = holds.get(plugin);
+    if (!count) return;
+    if (count > 1) {
+      holds.set(plugin, count - 1);
+      return;
+    }
     holds.delete(plugin);
     // Leave it alone if something else has replaced it since.
     if (!pluginRegistry.isRegistered(plugin)) return;
     api.unregisterPlugin(plugin.name);
-    if (entry.replaced && !pluginRegistry.getPlugin(plugin.name)) {
-      api.registerPlugin(entry.replaced);
-    }
+    const restore = restoreTarget(plugin);
+    if (restore && !pluginRegistry.getPlugin(plugin.name)) api.registerPlugin(restore);
   };
 
   const createHandle = (): SvelteLensAPI => {

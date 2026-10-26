@@ -351,6 +351,53 @@ describe("core/index.svelte.ts — init()", () => {
     expect(owner.getPlugins()).toContain("mine");
   });
 
+  it("respects plugins registered or removed directly on the instance", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const instance = instanceOf(owner)!;
+    const p = { name: "p" };
+    const q = { name: "p" };
+    const x = { name: "p" };
+
+    // A handle re-registers after the owner removed its plugin.
+    const h1 = init();
+    h1.registerPlugin(p);
+    instance.unregisterPlugin("p");
+    h1.registerPlugin(p);
+    expect(owner.getPlugins()).toContain("p");
+    const h2 = init();
+    instance.unregisterPlugin("p");
+    h2.registerPlugin(p); // shares h1's layer
+    expect(owner.getPlugins()).toContain("p");
+    h1.dispose();
+    h2.dispose();
+    expect(owner.getPlugins()).not.toContain("p");
+
+    // A direct registration made after handles layered on top survives them.
+    const h3 = init();
+    const h4 = init();
+    h3.registerPlugin(p);
+    instance.registerPlugin(x);
+    h4.registerPlugin(q);
+    h4.dispose();
+    h3.dispose();
+    expect(owner.getPlugins()).toContain("p");
+    instance.unregisterPlugin("p");
+
+    // A plugin the owner deliberately removed doesn't come back.
+    instance.registerPlugin(x);
+    const h5 = init();
+    const h6 = init();
+    h5.registerPlugin(p);
+    instance.unregisterPlugin("p");
+    h6.registerPlugin(q);
+    h6.dispose();
+    h5.dispose();
+    expect(owner.getPlugins()).not.toContain("p");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");

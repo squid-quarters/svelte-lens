@@ -622,6 +622,30 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   installListeners();
   mountRenderer();
 
+  // Handle registrations (see createHandle below) stack per plugin name. The bottom layer is whatever
+  // was registered outside handles (e.g. a built-in); each layer above is a
+  // handle's plugin, shared by the handles holding that same object. Removing
+  // the top layer brings back the one beneath it, so a handle's dispose()
+  // never removes a plugin someone else registered.
+  interface Layer {
+    plugin: Plugin;
+    holders: number; // 0 for the bottom layer registered outside handles
+  }
+  const layers = new Map<string, Layer[]>();
+
+  // Registrations made directly on the instance (module-level registerPlugin,
+  // window.__SVELTE_LENS__, plugin setup's api) replace the bottom layer, so
+  // a handle leaving neither removes them nor brings back what they replaced
+  // or removed.
+  const setBottomLayer = (name: string, plugin: Plugin | undefined): void => {
+    const stack = layers.get(name);
+    if (!stack) return;
+    const bottom = stack.findIndex((layer) => layer.holders === 0);
+    if (bottom !== -1) stack.splice(bottom, 1);
+    if (plugin) stack.unshift({ plugin, holders: 0 });
+    else if (stack.length === 0) layers.delete(name);
+  };
+
   const api: SvelteLensAPI = {
     activate,
     deactivate,
@@ -648,8 +672,14 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       targetElement: store.state.detectedElement,
     }),
     setOptions: (options: SettableOptions) => pluginRegistry.setOptions(options),
-    registerPlugin: (plugin: Plugin) => pluginRegistry.register(plugin, api),
-    unregisterPlugin: (name: string) => pluginRegistry.unregister(name),
+    registerPlugin: (plugin: Plugin) => {
+      setBottomLayer(plugin.name, plugin);
+      pluginRegistry.register(plugin, api);
+    },
+    unregisterPlugin: (name: string) => {
+      setBottomLayer(name, undefined);
+      pluginRegistry.unregister(name);
+    },
     getPlugins: () => pluginRegistry.getPluginNames(),
     dispose: () => {
       // A second dispose() must not reset the init guard of a newer instance.
@@ -686,17 +716,6 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   // init() can come first, and its cleanup must not shut down the layout's.
   let openHandles = 0;
 
-  // Handle registrations stack per plugin name. The bottom layer is whatever
-  // was registered outside handles (e.g. a built-in); each layer above is a
-  // handle's plugin, shared by the handles holding that same object. Removing
-  // the top layer brings back the one beneath it, so a handle's dispose()
-  // never removes a plugin someone else registered.
-  interface Layer {
-    plugin: Plugin;
-    holders: number; // 0 for the bottom layer registered outside handles
-  }
-  const layers = new Map<string, Layer[]>();
-
   const pushLayer = (plugin: Plugin): Layer => {
     let stack = layers.get(plugin.name);
     if (!stack) {
@@ -709,13 +728,14 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     // Another handle holding the same object shares its layer.
     if (top && top.plugin === plugin && top.holders > 0) {
       top.holders += 1;
+      if (!pluginRegistry.isRegistered(plugin)) pluginRegistry.register(plugin, api);
       return top;
     }
     const layer: Layer = { plugin, holders: 1 };
     stack.push(layer);
     // Re-registering an object that is already in place would just rerun its
     // setup.
-    if (pluginRegistry.getPlugin(plugin.name) !== plugin) api.registerPlugin(plugin);
+    if (pluginRegistry.getPlugin(plugin.name) !== plugin) pluginRegistry.register(plugin, api);
     return layer;
   };
 
@@ -735,8 +755,8 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     // Only act if this layer's plugin is still the registered one; something
     // registered outside handles since then wins.
     if (!wasTop || !pluginRegistry.isRegistered(layer.plugin)) return;
-    if (!next) api.unregisterPlugin(name);
-    else if (next.plugin !== layer.plugin) api.registerPlugin(next.plugin);
+    if (!next) pluginRegistry.unregister(name);
+    else if (next.plugin !== layer.plugin) pluginRegistry.register(next.plugin, api);
   };
 
   const createHandle = (): SvelteLensAPI => {
@@ -748,7 +768,11 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
         ...api,
         registerPlugin: (plugin: Plugin) => {
           const earlier = registered.get(plugin.name);
-          if (earlier?.plugin === plugin) return;
+          if (earlier?.plugin === plugin) {
+            // Re-register if someone removed it in the meantime.
+            if (!pluginRegistry.isRegistered(plugin)) pluginRegistry.register(plugin, api);
+            return;
+          }
           registered.set(plugin.name, pushLayer(plugin));
           if (earlier) releaseLayer(earlier);
         },

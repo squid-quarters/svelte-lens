@@ -187,4 +187,19 @@ describe("index.ts public API", () => {
     expect(getGlobalApi()).toBeNull();
     expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(0);
   });
+
+  it("keeps a module-level plugin when a page that registered it first leaves", async () => {
+    const { init, registerPlugin, getGlobalApi } = await import("../index.js");
+    const bridge = { name: "mcp-bridge" };
+
+    // Svelte runs the page's onMount before the layout's.
+    const page = init();
+    page.registerPlugin(bridge);
+    const layout = init();
+    cleanup = layout.dispose;
+    registerPlugin(bridge); // the README's layout snippet
+
+    page.dispose();
+    expect(getGlobalApi()?.getPlugins()).toContain("mcp-bridge");
+  });
 });

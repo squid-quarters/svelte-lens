@@ -301,6 +301,56 @@ describe("core/index.svelte.ts — init()", () => {
     expect(owner.getPlugins()).toContain("copy");
   });
 
+  it("a component switching between two plugin constants disposes cleanly", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const a = { name: "mode" };
+    const b = { name: "mode" };
+
+    // Toggled back and forth (this used to loop forever on dispose).
+    const page = init();
+    page.registerPlugin(a);
+    page.registerPlugin(b);
+    page.registerPlugin(a);
+    page.dispose();
+    expect(owner.getPlugins()).not.toContain("mode");
+  });
+
+  it("a handle re-registering a plugin someone else registered leaves it in place", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { copyPlugin } = await import("../core/plugins/copy.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const shared = { name: "shared" };
+    owner.registerPlugin(shared);
+
+    const page = init();
+    page.registerPlugin(copyPlugin); // the exported built-in
+    page.registerPlugin(shared); // a plugin the layout already registered
+    page.dispose();
+
+    expect(owner.getPlugins()).toEqual(expect.arrayContaining(["copy", "open", "shared"]));
+  });
+
+  it("keeps a module-level plugin when a page registered the same one and leaves", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const mine = { name: "mine" };
+    const theirs = { name: "mine" };
+    owner.registerPlugin(mine);
+
+    // Another handle layers over it, then one re-registers the original.
+    const h1 = init();
+    const h2 = init();
+    h1.registerPlugin(theirs);
+    h2.registerPlugin(mine);
+    h1.dispose();
+    h2.dispose();
+    expect(owner.getPlugins()).toContain("mine");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");

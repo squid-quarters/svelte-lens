@@ -13,6 +13,7 @@
   // The Quick Start: the root layout initialises svelte-lens and never
   // disposes it. Svelte runs this after the page's onMount.
   onMount(() => {
+    (globalThis as { __mountOrder?: string[] }).__mountOrder?.push("layout");
     init();
   });
 </script>

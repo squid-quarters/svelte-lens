@@ -633,17 +633,24 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   }
   const layers = new Map<string, Layer[]>();
 
-  // Registrations made directly on the instance (module-level registerPlugin,
-  // window.__SVELTE_LENS__, plugin setup's api) replace the bottom layer, so
-  // a handle leaving neither removes them nor brings back what they replaced
-  // or removed.
-  const setBottomLayer = (name: string, plugin: Plugin | undefined): void => {
-    const stack = layers.get(name);
-    if (!stack) return;
-    const bottom = stack.findIndex((layer) => layer.holders === 0);
-    if (bottom !== -1) stack.splice(bottom, 1);
-    if (plugin) stack.unshift({ plugin, holders: 0 });
-    else if (stack.length === 0) layers.delete(name);
+  // A registration made directly on the instance (module-level
+  // registerPlugin, window.__SVELTE_LENS__, plugin setup's api) wins, so the
+  // name's handle layers are forgotten: a handle leaving afterwards neither
+  // removes it nor brings back what it replaced or removed. The next handle
+  // registration starts a fresh stack from what is registered then.
+  const detachHandleLayers = (name: string): void => {
+    layers.delete(name);
+  };
+
+  const stackFor = (name: string): Layer[] => {
+    let stack = layers.get(name);
+    if (!stack) {
+      stack = [];
+      const outside = pluginRegistry.getPlugin(name);
+      if (outside) stack.push({ plugin: outside, holders: 0 });
+      layers.set(name, stack);
+    }
+    return stack;
   };
 
   const api: SvelteLensAPI = {
@@ -673,11 +680,11 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     }),
     setOptions: (options: SettableOptions) => pluginRegistry.setOptions(options),
     registerPlugin: (plugin: Plugin) => {
-      setBottomLayer(plugin.name, plugin);
+      detachHandleLayers(plugin.name);
       pluginRegistry.register(plugin, api);
     },
     unregisterPlugin: (name: string) => {
-      setBottomLayer(name, undefined);
+      detachHandleLayers(name);
       pluginRegistry.unregister(name);
     },
     getPlugins: () => pluginRegistry.getPluginNames(),
@@ -717,13 +724,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   let openHandles = 0;
 
   const pushLayer = (plugin: Plugin): Layer => {
-    let stack = layers.get(plugin.name);
-    if (!stack) {
-      stack = [];
-      const outside = pluginRegistry.getPlugin(plugin.name);
-      if (outside) stack.push({ plugin: outside, holders: 0 });
-      layers.set(plugin.name, stack);
-    }
+    const stack = stackFor(plugin.name);
     const top = stack[stack.length - 1];
     // Another handle holding the same object shares its layer.
     if (top && top.plugin === plugin && top.holders > 0) {
@@ -769,8 +770,15 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
         registerPlugin: (plugin: Plugin) => {
           const earlier = registered.get(plugin.name);
           if (earlier?.plugin === plugin) {
-            // Re-register if someone removed it in the meantime.
-            if (!pluginRegistry.isRegistered(plugin)) pluginRegistry.register(plugin, api);
+            // Registering it again (e.g. an effect re-running) puts it back on
+            // top if something else replaced or removed it meanwhile.
+            if (!pluginRegistry.isRegistered(plugin)) {
+              const stack = stackFor(plugin.name);
+              const at = stack.indexOf(earlier);
+              if (at !== -1) stack.splice(at, 1);
+              stack.push(earlier);
+              pluginRegistry.register(plugin, api);
+            }
             return;
           }
           registered.set(plugin.name, pushLayer(plugin));

@@ -23,8 +23,12 @@ describe("init() from a page mounted before the root layout", () => {
     // After resetModules, load svelte with the component so both share one runtime.
     const { flushSync, mount, unmount } = await import("svelte");
     const { default: Layout } = await import("./fixtures/MountOrderLayout.svelte");
+    const order: string[] = [];
+    (globalThis as { __mountOrder?: string[] }).__mountOrder = order;
     const app = mount(Layout, { target });
     flushSync();
+    // The ordering this test is about.
+    expect(order).toEqual(["page", "layout"]);
 
     const lens = window.__SVELTE_LENS__!;
     expect(lens.getPlugins()).toContain("page-plugin");

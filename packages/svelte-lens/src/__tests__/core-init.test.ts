@@ -398,6 +398,69 @@ describe("core/index.svelte.ts — init()", () => {
     expect(owner.getPlugins()).not.toContain("p");
   });
 
+  it("a handle re-registering its plugin over another handle's still removes it on dispose", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const active = new Set<string>();
+    const tracked = (tag: string) => ({
+      name: "copy",
+      setup: () => {
+        active.add(tag);
+        return { cleanup: () => void active.delete(tag) };
+      },
+    });
+    const p1 = tracked("p1");
+    const p2 = tracked("p2");
+    const h1 = init();
+    const h2 = init();
+    h1.registerPlugin(p1);
+    h2.registerPlugin(p2);
+    h1.registerPlugin(p1); // e.g. an $effect re-running: p1 takes over
+    expect([...active]).toEqual(["p1"]);
+
+    h1.dispose();
+    expect([...active]).toEqual(["p2"]);
+    h2.dispose();
+    // Neither handle's plugin outlives it; the built-in is back.
+    expect([...active]).toEqual([]);
+    expect(owner.getPlugins()).toContain("copy");
+  });
+
+  it("an unrelated handle leaving doesn't undo a direct registration", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const instance = instanceOf(owner)!;
+    const marks: string[] = [];
+    const mark = (tag: string) => ({
+      name: "slot",
+      setup: () => {
+        marks.push(`+${tag}`);
+        return { cleanup: () => void marks.push(`-${tag}`) };
+      },
+    });
+
+    const page = init();
+    page.registerPlugin(mark("page"));
+    instance.registerPlugin(mark("direct")); // module-level / README path
+    const modal = init();
+    modal.registerPlugin(mark("modal"));
+    modal.dispose();
+    // The direct registration comes back, not the page's plugin.
+    expect(marks.at(-1)).toBe("+direct");
+
+    // Same with a direct removal: the page's plugin doesn't come back.
+    instance.unregisterPlugin("slot");
+    const modal2 = init();
+    modal2.registerPlugin(mark("modal2"));
+    modal2.dispose();
+    expect(owner.getPlugins()).not.toContain("slot");
+    page.dispose();
+    expect(owner.getPlugins()).not.toContain("slot");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");

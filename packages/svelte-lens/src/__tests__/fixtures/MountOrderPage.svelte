@@ -4,6 +4,7 @@
 
   // A page that uses svelte-lens and cleans up after itself on unmount.
   onMount(() => {
+    (globalThis as { __mountOrder?: string[] }).__mountOrder?.push("page");
     const api = init();
     api.registerPlugin({ name: "page-plugin" });
     return () => api.dispose();

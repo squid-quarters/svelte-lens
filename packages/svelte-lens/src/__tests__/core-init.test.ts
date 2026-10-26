@@ -211,6 +211,289 @@ describe("core/index.svelte.ts — init()", () => {
     expect(first.getPlugins()).not.toContain("shared");
   });
 
+  it("keeps running until every init() caller has disposed, in either order", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const hosts = () => document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length;
+
+    // The first caller disposes first (e.g. a page mounted before the layout).
+    const a = init();
+    const b = init();
+    a.dispose();
+    expect(b.isEnabled()).toBe(true);
+    expect(hosts()).toBe(1);
+    b.dispose();
+    expect(b.isEnabled()).toBe(false);
+    expect(hosts()).toBe(0);
+
+    // And the other way round.
+    const c = init();
+    const d = init();
+    d.dispose();
+    expect(c.isEnabled()).toBe(true);
+    c.dispose();
+    expect(hosts()).toBe(0);
+  });
+
+  it("the instance's own dispose() tears everything down regardless of handles", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
+    const a = init();
+    const b = init();
+    instanceOf(a)!.dispose();
+    expect(a.isEnabled()).toBe(false);
+    expect(b.isEnabled()).toBe(false);
+    expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(0);
+    // Disposing the handles afterwards is harmless, and a new init() works.
+    a.dispose();
+    b.dispose();
+    const fresh = init();
+    cleanup = fresh.dispose;
+    expect(fresh.isEnabled()).toBe(true);
+  });
+
+  it("brings back a built-in plugin that a handle's plugin had replaced", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+
+    const handle = init();
+    const cleanupOverride = vi.fn();
+    handle.registerPlugin({ name: "copy", setup: () => ({ cleanup: cleanupOverride }) });
+    handle.dispose();
+
+    expect(cleanupOverride).toHaveBeenCalledTimes(1);
+    expect(owner.getPlugins()).toContain("copy");
+  });
+
+  it("restores the right plugin when handles replace each other", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const marks: string[] = [];
+    const plugin = (mark: string) => ({
+      name: "copy",
+      setup: () => {
+        marks.push(mark);
+        return {};
+      },
+    });
+
+    // A replaces the built-in, then B replaces A while A's handle is open.
+    const a = init();
+    const b = init();
+    a.registerPlugin(plugin("a"));
+    b.registerPlugin(plugin("b"));
+    b.dispose();
+    // A's handle is still open, so A comes back rather than the built-in.
+    expect(marks).toEqual(["a", "b", "a"]);
+    a.dispose();
+    expect(owner.getPlugins()).toContain("copy");
+
+    // Same again, but A's handle closes first: B stays, then the built-in returns.
+    marks.length = 0;
+    const c = init();
+    const d = init();
+    c.registerPlugin(plugin("c"));
+    d.registerPlugin(plugin("d"));
+    c.dispose();
+    d.dispose();
+    expect(marks).toEqual(["c", "d"]);
+    expect(owner.getPlugins()).toContain("copy");
+  });
+
+  it("a component switching between two plugin constants disposes cleanly", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const a = { name: "mode" };
+    const b = { name: "mode" };
+
+    // Toggled back and forth (this used to loop forever on dispose).
+    const page = init();
+    page.registerPlugin(a);
+    page.registerPlugin(b);
+    page.registerPlugin(a);
+    page.dispose();
+    expect(owner.getPlugins()).not.toContain("mode");
+  });
+
+  it("a handle re-registering a plugin someone else registered leaves it in place", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { copyPlugin } = await import("../core/plugins/copy.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const shared = { name: "shared" };
+    owner.registerPlugin(shared);
+
+    const page = init();
+    page.registerPlugin(copyPlugin); // the exported built-in
+    page.registerPlugin(shared); // a plugin the layout already registered
+    page.dispose();
+
+    expect(owner.getPlugins()).toEqual(expect.arrayContaining(["copy", "open", "shared"]));
+  });
+
+  it("keeps a module-level plugin when a page registered the same one and leaves", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const mine = { name: "mine" };
+    const theirs = { name: "mine" };
+    owner.registerPlugin(mine);
+
+    // Another handle layers over it, then one re-registers the original.
+    const h1 = init();
+    const h2 = init();
+    h1.registerPlugin(theirs);
+    h2.registerPlugin(mine);
+    h1.dispose();
+    h2.dispose();
+    expect(owner.getPlugins()).toContain("mine");
+  });
+
+  it("respects plugins registered or removed directly on the instance", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const instance = instanceOf(owner)!;
+    const p = { name: "p" };
+    const q = { name: "p" };
+    const x = { name: "p" };
+
+    // A handle re-registers after the owner removed its plugin.
+    const h1 = init();
+    h1.registerPlugin(p);
+    instance.unregisterPlugin("p");
+    h1.registerPlugin(p);
+    expect(owner.getPlugins()).toContain("p");
+    const h2 = init();
+    instance.unregisterPlugin("p");
+    h2.registerPlugin(p); // shares h1's layer
+    expect(owner.getPlugins()).toContain("p");
+    h1.dispose();
+    h2.dispose();
+    expect(owner.getPlugins()).not.toContain("p");
+
+    // A direct registration made after handles layered on top survives them.
+    const h3 = init();
+    const h4 = init();
+    h3.registerPlugin(p);
+    instance.registerPlugin(x);
+    h4.registerPlugin(q);
+    h4.dispose();
+    h3.dispose();
+    expect(owner.getPlugins()).toContain("p");
+    instance.unregisterPlugin("p");
+
+    // A plugin the owner deliberately removed doesn't come back.
+    instance.registerPlugin(x);
+    const h5 = init();
+    const h6 = init();
+    h5.registerPlugin(p);
+    instance.unregisterPlugin("p");
+    h6.registerPlugin(q);
+    h6.dispose();
+    h5.dispose();
+    expect(owner.getPlugins()).not.toContain("p");
+  });
+
+  it("a handle re-registering its plugin over another handle's still removes it on dispose", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const active = new Set<string>();
+    const tracked = (tag: string) => ({
+      name: "copy",
+      setup: () => {
+        active.add(tag);
+        return { cleanup: () => void active.delete(tag) };
+      },
+    });
+    const p1 = tracked("p1");
+    const p2 = tracked("p2");
+    const h1 = init();
+    const h2 = init();
+    h1.registerPlugin(p1);
+    h2.registerPlugin(p2);
+    h1.registerPlugin(p1); // e.g. an $effect re-running: p1 takes over
+    expect([...active]).toEqual(["p1"]);
+
+    h1.dispose();
+    expect([...active]).toEqual(["p2"]);
+    h2.dispose();
+    // Neither handle's plugin outlives it; the built-in is back.
+    expect([...active]).toEqual([]);
+    expect(owner.getPlugins()).toContain("copy");
+  });
+
+  it("an unrelated handle leaving doesn't undo a direct registration", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const instance = instanceOf(owner)!;
+    const marks: string[] = [];
+    const mark = (tag: string) => ({
+      name: "slot",
+      setup: () => {
+        marks.push(`+${tag}`);
+        return { cleanup: () => void marks.push(`-${tag}`) };
+      },
+    });
+
+    const page = init();
+    page.registerPlugin(mark("page"));
+    instance.registerPlugin(mark("direct")); // module-level / README path
+    const modal = init();
+    modal.registerPlugin(mark("modal"));
+    modal.dispose();
+    // The direct registration comes back, not the page's plugin.
+    expect(marks.at(-1)).toBe("+direct");
+
+    // Same with a direct removal: the page's plugin doesn't come back.
+    instance.unregisterPlugin("slot");
+    const modal2 = init();
+    modal2.registerPlugin(mark("modal2"));
+    modal2.dispose();
+    expect(owner.getPlugins()).not.toContain("slot");
+    page.dispose();
+    expect(owner.getPlugins()).not.toContain("slot");
+  });
+
+  it("re-registering after a direct op takes a fresh hold instead of reviving cut-off ones", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const instance = instanceOf(owner)!;
+    const p = { name: "slot" };
+
+    // Two handles share a layer; a direct removal cuts both off.
+    const a = init();
+    const b = init();
+    a.registerPlugin(p);
+    b.registerPlugin(p);
+    instance.unregisterPlugin("slot");
+    a.registerPlugin(p);
+    a.unregisterPlugin("slot");
+    // b's cut-off hold doesn't keep it registered.
+    expect(owner.getPlugins()).not.toContain("slot");
+    b.dispose();
+
+    // A handle that re-registers after a direct op counts like a new one.
+    const c = init();
+    c.registerPlugin(p);
+    instance.unregisterPlugin("slot");
+    const d = init();
+    d.registerPlugin(p);
+    c.registerPlugin(p);
+    d.dispose();
+    expect(owner.getPlugins()).toContain("slot");
+    c.dispose();
+    expect(owner.getPlugins()).not.toContain("slot");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");
@@ -250,15 +533,16 @@ describe("core/index.svelte.ts — init()", () => {
 
   it("disposing a stale API twice leaves a newer instance intact", async () => {
     const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
     const first = init();
     first.dispose();
     const second = init();
     cleanup = second.dispose;
-    window.__SVELTE_LENS__ = second;
+    window.__SVELTE_LENS__ = instanceOf(second);
 
     first.dispose();
 
-    expect(window.__SVELTE_LENS__).toBe(second);
+    expect(window.__SVELTE_LENS__).toBe(instanceOf(second));
     expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(1);
     // The init guard still belongs to the live instance.
     expect(init().isEnabled()).toBe(true);
@@ -267,11 +551,12 @@ describe("core/index.svelte.ts — init()", () => {
 
   it("dispose clears window.__SVELTE_LENS__ when set", async () => {
     const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
     const api = init();
     cleanup = api.dispose;
 
-    // Manually set window.__SVELTE_LENS__ as the index.ts wrapper does
-    window.__SVELTE_LENS__ = api;
+    // Manually set window.__SVELTE_LENS__ to the instance, as index.ts does
+    window.__SVELTE_LENS__ = instanceOf(api);
     expect(window.__SVELTE_LENS__).toBeDefined();
 
     api.dispose();

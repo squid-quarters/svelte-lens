@@ -34,7 +34,7 @@ import { createPluginRegistry } from "./plugin-registry.svelte.js";
 import { resolveSource, getStackContext } from "./source.js";
 import { copyPlugin } from "./plugins/copy.js";
 import { openPlugin } from "./plugins/open.js";
-import { markBorrowed } from "./borrowed.js";
+import { markHandle } from "./handles.js";
 
 const noop = (): void => {};
 
@@ -74,7 +74,7 @@ const MODIFIER_KEYS = new Set<string>(["Meta", "Control", "Alt", "Shift"]);
 
 interface LiveInstance {
   api: SvelteLensAPI;
-  borrow: () => SvelteLensAPI;
+  createHandle: () => SvelteLensAPI;
 }
 
 interface InitGuards {
@@ -103,7 +103,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
           "were ignored. Use setOptions() on the returned API to change them.",
       );
     }
-    return guards.live.borrow();
+    return guards.live.createHandle();
   }
 
   const initialOptions: SettableOptions = {
@@ -622,6 +622,37 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   installListeners();
   mountRenderer();
 
+  // Handle registrations (see createHandle below) stack per plugin name. The bottom layer is whatever
+  // was registered outside handles (e.g. a built-in); each layer above is a
+  // handle's plugin, shared by the handles holding that same object. Removing
+  // the top layer brings back the one beneath it, so a handle's dispose()
+  // never removes a plugin someone else registered.
+  interface Layer {
+    plugin: Plugin;
+    holders: number; // 0 for the bottom layer registered outside handles
+  }
+  const layers = new Map<string, Layer[]>();
+
+  // A registration made directly on the instance (module-level
+  // registerPlugin, window.__SVELTE_LENS__, plugin setup's api) wins, so the
+  // name's handle layers are forgotten: a handle leaving afterwards neither
+  // removes it nor brings back what it replaced or removed. The next handle
+  // registration starts a fresh stack from what is registered then.
+  const detachHandleLayers = (name: string): void => {
+    layers.delete(name);
+  };
+
+  const stackFor = (name: string): Layer[] => {
+    let stack = layers.get(name);
+    if (!stack) {
+      stack = [];
+      const outside = pluginRegistry.getPlugin(name);
+      if (outside) stack.push({ plugin: outside, holders: 0 });
+      layers.set(name, stack);
+    }
+    return stack;
+  };
+
   const api: SvelteLensAPI = {
     activate,
     deactivate,
@@ -648,8 +679,14 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       targetElement: store.state.detectedElement,
     }),
     setOptions: (options: SettableOptions) => pluginRegistry.setOptions(options),
-    registerPlugin: (plugin: Plugin) => pluginRegistry.register(plugin, api),
-    unregisterPlugin: (name: string) => pluginRegistry.unregister(name),
+    registerPlugin: (plugin: Plugin) => {
+      detachHandleLayers(plugin.name);
+      pluginRegistry.register(plugin, api);
+    },
+    unregisterPlugin: (name: string) => {
+      detachHandleLayers(name);
+      pluginRegistry.unregister(name);
+    },
     getPlugins: () => pluginRegistry.getPluginNames(),
     dispose: () => {
       // A second dispose() must not reset the init guard of a newer instance.
@@ -680,49 +717,99 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     pluginRegistry.register(builtin, api);
   }
 
-  // A repeat init()'s handle: it drives this instance, but its dispose()
-  // only removes the plugins registered through it (if they haven't been
-  // replaced since), so a component cleaning up after itself can't shut
-  // svelte-lens down for everyone else.
-  // Handles holding each plugin object, so a shared plugin constant used by
-  // two mounted components survives the first one's cleanup.
-  const borrowedHolds = new Map<Plugin, number>();
-  const borrow = (): SvelteLensAPI => {
-    const registered = new Map<string, Plugin>();
-    const release = (plugin: Plugin): number => {
-      const holds = (borrowedHolds.get(plugin) ?? 1) - 1;
-      if (holds > 0) borrowedHolds.set(plugin, holds);
-      else borrowedHolds.delete(plugin);
-      return holds;
-    };
-    return markBorrowed({
-      ...api,
-      registerPlugin: (plugin: Plugin) => {
-        const previous = registered.get(plugin.name);
-        if (previous) release(previous);
-        registered.set(plugin.name, plugin);
-        borrowedHolds.set(plugin, (borrowedHolds.get(plugin) ?? 0) + 1);
-        api.registerPlugin(plugin);
-      },
-      unregisterPlugin: (name: string) => {
-        const plugin = registered.get(name);
-        if (plugin) release(plugin);
-        registered.delete(name);
-        api.unregisterPlugin(name);
-      },
-      dispose: () => {
-        for (const [name, plugin] of registered) {
-          if (release(plugin) === 0 && pluginRegistry.isRegistered(plugin)) {
-            api.unregisterPlugin(name);
-          }
-        }
-        registered.clear();
-      },
-    });
+  // Every init() caller gets its own handle onto this instance. svelte-lens
+  // keeps running until every handle is disposed, so mount order doesn't
+  // matter: Svelte runs a page's onMount before the root layout's, so a page's
+  // init() can come first, and its cleanup must not shut down the layout's.
+  let openHandles = 0;
+
+  const pushLayer = (plugin: Plugin): Layer => {
+    const stack = stackFor(plugin.name);
+    const top = stack[stack.length - 1];
+    // Another handle holding the same object shares its layer.
+    if (top && top.plugin === plugin && top.holders > 0) {
+      top.holders += 1;
+      if (!pluginRegistry.isRegistered(plugin)) pluginRegistry.register(plugin, api);
+      return top;
+    }
+    const layer: Layer = { plugin, holders: 1 };
+    stack.push(layer);
+    // Re-registering an object that is already in place would just rerun its
+    // setup.
+    if (pluginRegistry.getPlugin(plugin.name) !== plugin) pluginRegistry.register(plugin, api);
+    return layer;
   };
 
-  guards.live = { api, borrow };
-  return api;
+  const releaseLayer = (layer: Layer): void => {
+    layer.holders -= 1;
+    if (layer.holders > 0) return;
+    const name = layer.plugin.name;
+    const stack = layers.get(name);
+    const index = stack?.indexOf(layer) ?? -1;
+    if (!stack || index === -1) return;
+    const wasTop = index === stack.length - 1;
+    stack.splice(index, 1);
+    const next = stack[stack.length - 1];
+    // With no handle layers left, forget the stack; the next handle
+    // registration reads the bottom layer afresh.
+    if (stack.every((remaining) => remaining.holders === 0)) layers.delete(name);
+    // Only act if this layer's plugin is still the registered one; something
+    // registered outside handles since then wins.
+    if (!wasTop || !pluginRegistry.isRegistered(layer.plugin)) return;
+    if (!next) pluginRegistry.unregister(name);
+    else if (next.plugin !== layer.plugin) pluginRegistry.register(next.plugin, api);
+  };
+
+  const createHandle = (): SvelteLensAPI => {
+    openHandles += 1;
+    const registered = new Map<string, Layer>();
+    let released = false;
+    return markHandle(
+      {
+        ...api,
+        registerPlugin: (plugin: Plugin) => {
+          const earlier = registered.get(plugin.name);
+          // Registering it again (e.g. an effect re-running) puts it back on
+          // top if another handle replaced it meanwhile. A layer a direct op
+          // has cut off is never reused; the handle takes a fresh hold below.
+          const stack = layers.get(plugin.name);
+          if (earlier?.plugin === plugin && stack?.includes(earlier)) {
+            if (!pluginRegistry.isRegistered(plugin)) {
+              stack.splice(stack.indexOf(earlier), 1);
+              stack.push(earlier);
+              pluginRegistry.register(plugin, api);
+            }
+            return;
+          }
+          registered.set(plugin.name, pushLayer(plugin));
+          if (earlier) releaseLayer(earlier);
+        },
+        unregisterPlugin: (name: string) => {
+          const layer = registered.get(name);
+          if (!layer) {
+            api.unregisterPlugin(name);
+            return;
+          }
+          registered.delete(name);
+          releaseLayer(layer);
+        },
+        dispose: () => {
+          if (released) return;
+          released = true;
+          openHandles -= 1;
+          // The last handle tears the instance down with its plugins still in
+          // place, so they see the deactivation and their own cleanup.
+          if (openHandles === 0) api.dispose();
+          else for (const layer of registered.values()) releaseLayer(layer);
+          registered.clear();
+        },
+      },
+      api,
+    );
+  };
+
+  guards.live = { api, createHandle };
+  return createHandle();
 };
 
 export {

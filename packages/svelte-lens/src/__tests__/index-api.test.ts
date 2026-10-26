@@ -61,10 +61,12 @@ describe("index.ts public API", () => {
 
   it("init() sets window.__SVELTE_LENS__ with Object.defineProperty", async () => {
     const { init } = await import("../index.js");
+    const { instanceOf } = await import("../core/handles.js");
 
+    // init() returns the caller's handle; the global is the shared instance.
     const api = init();
     expect(window.__SVELTE_LENS__).toBeDefined();
-    expect(window.__SVELTE_LENS__).toBe(api);
+    expect(window.__SVELTE_LENS__).toBe(instanceOf(api));
 
     // Verify the property is non-writable (finding #13).
     const descriptor = Object.getOwnPropertyDescriptor(window, "__SVELTE_LENS__");
@@ -86,6 +88,7 @@ describe("index.ts public API", () => {
 
   it("init() dispatches svelte-lens:init CustomEvent", async () => {
     const { init } = await import("../index.js");
+    const { instanceOf } = await import("../core/handles.js");
 
     const handler = vi.fn();
     window.addEventListener("svelte-lens:init", handler);
@@ -94,7 +97,7 @@ describe("index.ts public API", () => {
     cleanup = api.dispose;
 
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler.mock.calls[0]?.[0]?.detail).toBe(api);
+    expect(handler.mock.calls[0]?.[0]?.detail).toBe(instanceOf(api));
     window.removeEventListener("svelte-lens:init", handler);
   });
 
@@ -144,6 +147,7 @@ describe("index.ts public API", () => {
 
   it("disposing a stale API again keeps the newer instance as the global", async () => {
     const { getGlobalApi, init } = await import("../index.js");
+    const { instanceOf } = await import("../core/handles.js");
     const first = init();
     first.dispose();
     const second = init();
@@ -151,27 +155,30 @@ describe("index.ts public API", () => {
 
     first.dispose();
 
-    expect(getGlobalApi()).toBe(second);
-    expect(window.__SVELTE_LENS__).toBe(second);
+    expect(getGlobalApi()).toBe(instanceOf(second));
+    expect(window.__SVELTE_LENS__).toBe(instanceOf(second));
+    expect(second.isEnabled()).toBe(true);
   });
 
   it("a repeat init() reaches the running instance without re-announcing it", async () => {
     const { getGlobalApi, init } = await import("../index.js");
+    const { instanceOf } = await import("../core/handles.js");
     const announced = vi.fn();
     window.addEventListener("svelte-lens:init", announced);
     const first = init();
     cleanup = first.dispose;
 
     const again = init();
+    expect(instanceOf(again)).toBe(instanceOf(first));
     again.registerPlugin({ name: "late" });
     expect(first.getPlugins()).toContain("late");
-    expect(getGlobalApi()).toBe(first);
+    expect(getGlobalApi()).toBe(instanceOf(first));
     expect(announced).toHaveBeenCalledTimes(1);
     window.removeEventListener("svelte-lens:init", announced);
 
     // The repeat handle's dispose() leaves the shared instance running.
     again.dispose();
-    expect(getGlobalApi()).toBe(first);
+    expect(getGlobalApi()).toBe(instanceOf(first));
     expect(first.isEnabled()).toBe(true);
 
     // One dispose still tears it down and clears the global.
@@ -179,5 +186,20 @@ describe("index.ts public API", () => {
     cleanup = null;
     expect(getGlobalApi()).toBeNull();
     expect(document.querySelectorAll(`[${HOST_ATTRIBUTE}]`).length).toBe(0);
+  });
+
+  it("keeps a module-level plugin when a page that registered it first leaves", async () => {
+    const { init, registerPlugin, getGlobalApi } = await import("../index.js");
+    const bridge = { name: "mcp-bridge" };
+
+    // Svelte runs the page's onMount before the layout's.
+    const page = init();
+    page.registerPlugin(bridge);
+    const layout = init();
+    cleanup = layout.dispose;
+    registerPlugin(bridge); // the README's layout snippet
+
+    page.dispose();
+    expect(getGlobalApi()?.getPlugins()).toContain("mcp-bridge");
   });
 });

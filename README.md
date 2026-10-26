@@ -140,7 +140,7 @@ api.registerPlugin({
 // api.dispose()           release this handle and the plugins registered through it
 ```
 
-Each `init()` call returns its own handle onto one shared instance, so any component can call it, in any mount order. svelte-lens keeps running until every handle has been disposed. A handle's `dispose()` removes the plugins registered through it and restores any plugin they had replaced. `window.__SVELTE_LENS__` is the shared instance itself, and its `dispose()` tears everything down.
+Each `init()` call returns its own handle onto one shared instance, so any component can call it, in any mount order. svelte-lens keeps running until every handle has been disposed. A handle's `dispose()` removes the plugins registered through it and restores any plugin they had replaced. Registering or removing a plugin directly on the shared instance (module-level `registerPlugin`, `window.__SVELTE_LENS__`) always wins, and handles leaving later don't undo it. `window.__SVELTE_LENS__` is the shared instance itself, and its `dispose()` tears everything down.
 
 Hooks go under `hooks` (or in the `{ hooks }` object returned from `setup(api)`). Available hooks: `onActivate`, `onDeactivate`, `onElementSelect`, `onBeforeCopy`, `transformCopyContent`, `onAfterCopy`, `onCopyError`, `onContextMenu`.
 

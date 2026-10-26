@@ -461,6 +461,39 @@ describe("core/index.svelte.ts — init()", () => {
     expect(owner.getPlugins()).not.toContain("slot");
   });
 
+  it("re-registering after a direct op takes a fresh hold instead of reviving cut-off ones", async () => {
+    const { init } = await import("../core/index.svelte.js");
+    const { instanceOf } = await import("../core/handles.js");
+    const owner = init();
+    cleanup = owner.dispose;
+    const instance = instanceOf(owner)!;
+    const p = { name: "slot" };
+
+    // Two handles share a layer; a direct removal cuts both off.
+    const a = init();
+    const b = init();
+    a.registerPlugin(p);
+    b.registerPlugin(p);
+    instance.unregisterPlugin("slot");
+    a.registerPlugin(p);
+    a.unregisterPlugin("slot");
+    // b's cut-off hold doesn't keep it registered.
+    expect(owner.getPlugins()).not.toContain("slot");
+    b.dispose();
+
+    // A handle that re-registers after a direct op counts like a new one.
+    const c = init();
+    c.registerPlugin(p);
+    instance.unregisterPlugin("slot");
+    const d = init();
+    d.registerPlugin(p);
+    c.registerPlugin(p);
+    d.dispose();
+    expect(owner.getPlugins()).toContain("slot");
+    c.dispose();
+    expect(owner.getPlugins()).not.toContain("slot");
+  });
+
   it("warns that options passed to a repeat init() are ignored", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { init } = await import("../core/index.svelte.js");

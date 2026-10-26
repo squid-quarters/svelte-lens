@@ -769,13 +769,13 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
         ...api,
         registerPlugin: (plugin: Plugin) => {
           const earlier = registered.get(plugin.name);
-          if (earlier?.plugin === plugin) {
-            // Registering it again (e.g. an effect re-running) puts it back on
-            // top if something else replaced or removed it meanwhile.
+          // Registering it again (e.g. an effect re-running) puts it back on
+          // top if another handle replaced it meanwhile. A layer a direct op
+          // has cut off is never reused; the handle takes a fresh hold below.
+          const stack = layers.get(plugin.name);
+          if (earlier?.plugin === plugin && stack?.includes(earlier)) {
             if (!pluginRegistry.isRegistered(plugin)) {
-              const stack = stackFor(plugin.name);
-              const at = stack.indexOf(earlier);
-              if (at !== -1) stack.splice(at, 1);
+              stack.splice(stack.indexOf(earlier), 1);
               stack.push(earlier);
               pluginRegistry.register(plugin, api);
             }

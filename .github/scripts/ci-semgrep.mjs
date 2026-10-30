@@ -1,5 +1,5 @@
-import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { delimiter, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,15 +35,30 @@ export function scannerArguments(mode, output) {
   ];
 }
 
-export function dockerArguments(root, reports, mode) {
+export function gitMetadataDirectories(root) {
+  const marker = resolve(root, ".git");
+  if (!existsSync(marker) || !lstatSync(marker).isFile()) return [];
+  const common = execFileSync(
+    "git",
+    ["-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  ).trim();
+  if (!isAbsolute(common) || !lstatSync(common).isDirectory())
+    throw new Error("Invalid Git metadata directory");
+  return [common];
+}
+
+export function dockerArguments(root, reports, mode, metadata = []) {
   return [
     "run",
     "--rm",
+    "--pull=never",
     "--network=none",
     "--mount",
     `type=bind,src=${root},dst=/src,readonly`,
     "--mount",
     `type=bind,src=${reports},dst=/reports`,
+    ...metadata.flatMap((path) => ["--mount", `type=bind,src=${path},dst=${path},readonly`]),
     "--workdir",
     "/src",
     "--env",
@@ -100,7 +115,8 @@ export function main(local = false) {
     for (const mode of ["test", "scan"])
       run(binary, scannerArguments(mode, resolve(reports, "semgrep.json")), env);
   } else {
-    for (const mode of ["test", "scan"]) run("docker", dockerArguments(root, reports, mode), env);
+    for (const mode of ["test", "scan"])
+      run("docker", dockerArguments(root, reports, mode, gitMetadataDirectories(root)), env);
   }
   const report = JSON.parse(readFileSync(resolve(reports, "semgrep.json"), "utf8"));
   assertReport(report);

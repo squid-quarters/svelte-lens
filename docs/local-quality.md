@@ -1,6 +1,6 @@
 # Local commit quality contract
 
-Use Node 24.15.0 (`.nvmrc`), Corepack’s pinned pnpm 9.15.0, Git, Docker,
+Use Node 24.22.1 (`.nvmrc`), Corepack’s pinned pnpm 9.15.0, Git, Docker,
 and an installed Playwright Chromium matching the lockfile. Run
 `pnpm --filter @svelte-lens/e2e-app exec playwright install chromium` once
 if the browser is missing. Then run `pnpm quality:install` in this checkout.
@@ -15,8 +15,7 @@ avoid checkout-filter substitution; symlinks and submodules are rejected.
 The staged runner and loader must match their working copies. Checks receive
 a minimal environment without inherited credentials or Git index settings.
 Tracked bytes, executable bits, both indexes and the original HEAD are
-checked again before a pass. Cancellation terminates the owned process group
-and removes only the gate’s temporary worktree.
+checked again before a pass. Cancellation discovers owned descendants by ancestry and the uniquely owned session, then revalidates each positive PID/start identity before signalling it. No group or name-based signal is sent. Cleanup removes only the gate’s temporary worktree.
 
 The full sequence is recorded in `.local-quality.json`: frozen installation,
 gate safety fixtures, formatting, lint, security, build, type checking, unit

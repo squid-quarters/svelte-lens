@@ -52,7 +52,9 @@ export function dockerArguments(root, reports, mode, metadata = []) {
   return [
     "run",
     "--rm",
-    "--pull=never",
+    // Fetch the exact digest on fresh runners; reuse it when already cached.
+    // This is daemon-side image acquisition: the scanner stays offline below.
+    "--pull=missing",
     "--network=none",
     "--mount",
     `type=bind,src=${root},dst=/src,readonly`,

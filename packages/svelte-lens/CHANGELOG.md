@@ -1,5 +1,11 @@
 # @gear-null/svelte-lens
 
+## 1.0.10
+
+### Patch Changes
+
+- [#77](https://github.com/squid-quarters/svelte-lens/pull/77) [`cfec222`](https://github.com/squid-quarters/svelte-lens/commit/cfec222559a69c59be4946bb593bfba96cc4c188) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Document a tested opt-in, development-only client-rendered inspection route for missing Svelte hydration metadata, preserving production SSR and the unchanged consumer API.
+
 ## 1.0.9
 
 ### Patch Changes

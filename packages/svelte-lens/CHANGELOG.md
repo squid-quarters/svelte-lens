@@ -1,5 +1,15 @@
 # @gear-null/svelte-lens
 
+## 1.0.7
+
+### Patch Changes
+
+- [#71](https://github.com/squid-quarters/svelte-lens/pull/71) [`35bff0d`](https://github.com/squid-quarters/svelte-lens/commit/35bff0d6d7e6a09c92f94566b5e269c5b5c30b4a) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Make disposed handles inert, cancel their pending copy continuations, and prevent
+  reentrant plugin setup or cleanup from leaking registrations. Preserve context-menu
+  action order when replacing plugins, refresh surviving highlight geometry after DOM
+  changes, and document initialization after component mount.
+  Copy all elements supplied to the existing array API through one copy pipeline.
+
 ## 1.0.6
 
 ### Patch Changes

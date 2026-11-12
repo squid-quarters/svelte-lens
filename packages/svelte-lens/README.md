@@ -136,6 +136,28 @@ default content includes each element's preview and source stack in input order,
 separated by blank lines. Copy hooks and `getContent` receive the full array
 snapshot once; an empty array returns `false` without invoking them.
 
+## Inspecting missing hydration metadata
+
+Some Svelte versions omit exact source metadata for static markup after a
+component during hydration ([upstream issue](https://github.com/sveltejs/svelte/issues/19069)).
+Lens can fall back to an annotated ancestor, but that cannot recover the missing
+child's exact location.
+
+For a dedicated inspection route, you can explicitly choose client rendering
+**in development only**. In that route's `+page.ts` (merging with any existing
+exports), use this SvelteKit 2/3 configuration:
+
+```ts
+export const ssr = !import.meta.env.DEV;
+```
+
+Client mounting restores the exact development metadata on supported versions;
+production builds keep SSR enabled. This changes the route's development first
+render and prevents reproducing SSR/hydration behavior there. Keep a normal
+SSR route for that testing, and remove the export to restore development SSR.
+Lens does not apply this setting automatically. It is an opt-in workaround,
+not a repair for the upstream hydration issue.
+
 ## License
 
 MIT

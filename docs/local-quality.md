@@ -20,7 +20,8 @@ checked again before a pass. Cancellation discovers owned descendants by ancestr
 The full sequence is recorded in `.local-quality.json`: frozen installation,
 gate safety fixtures, formatting, lint, security, build, type checking, unit
 tests, package/CLI/MCP validation, Kit 3 browser tests, the Kit 2/Svelte 5.56.3 consumer fixture, then latest-Svelte
-browser tests. Browser tests use one worker, no retries and strict port 5174;
+browser tests. Production-preview HTTP checks verify that the opt-in metadata
+inspection route retains SSR in production on both Kit versions. Browser tests use one worker, no retries and strict port 5174;
 a running server on that port causes failure. They run headlessly. Normal
 build-tool caches may be used; receipts never skip a gate invocation.
 

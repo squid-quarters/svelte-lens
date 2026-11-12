@@ -17,6 +17,9 @@
     ".svelte-kit/types/**/$types.d.ts",
     "../e2e-app/src/**/*.ts",
     "../e2e-app/src/**/*.svelte",
-    "*.ts"
+    "*.ts",
+    "src/**/*.ts",
+    "src/**/*.svelte",
+    "tests/**/*.ts"
   ]
 }

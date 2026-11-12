@@ -741,19 +741,36 @@ consumer installation of the locally packed candidate, without workspace
 overrides, reports 0 dependency advisories. Audit results describe the current
 registry data and dependency graph, not a guarantee against future findings.
 
-Residual workspace findings are explicit:
+Residual registry warnings are explicit, with code state checked separately:
 
-- Two low Kit 2 advisories remain only in the private consumer-floor compatibility
-  fixture: enhanced-form redirection and prerendered cache-header injection.
-  The fixture shares the static playground routes (no enhanced forms or external
-  data), runs on loopback for tests, and is neither published nor deployed. Kit 3
-  cannot test the supported Svelte 5.56.3 floor, so replacing this fixture with Kit
-  3 would lose that consumer coverage. The main development harness uses Kit 3.
+- The two Kit warnings use ranges that are broader than the released code.
+  Kit 2.70.4 already contains the official cache-header escaping backport
+  ([PR 17620](https://github.com/sveltejs/kit/pull/17620)). The enhanced cross-page
+  navigation involved in the redirect advisory was introduced in
+  [3.0.0-next.17](https://github.com/sveltejs/kit/releases/tag/%40sveltejs%2Fkit%403.0.0-next.17)
+  and fixed in
+  [3.0.0-next.32](https://github.com/sveltejs/kit/releases/tag/%40sveltejs%2Fkit%403.0.0-next.32);
+  Kit 2 does not implement that navigation behavior. The private floor fixture
+  now verifies real leading-double-slash catch-all form actions, unchanged origin,
+  legitimate redirects, and prerendered malicious cache-header escaping. These
+  tests preserve all existing real Svelte 5.56.3 browser coverage. Focused advisory
+  metadata corrections are prepared separately; no local audit ignore is applied.
 - [deepmerge GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
-  has no patched registry release; latest remains 4.3.1. The current Svelte Vite
-  plugin uses it to merge trusted build configuration. It is not part of the
-  published Lens runtime. Track [upstream issue 273](https://github.com/TehShrike/deepmerge/issues/273)
-  rather than force an incompatible or older version.
+  remains attached to upstream 4.3.1. An exact-version pnpm patch changes all three
+  destination writes in CJS, UMD and build source to own data-property definitions.
+  This prevents accepted `__proto__` data from changing the returned object's
+  prototype while preserving existing unsafe-property guards and merge options.
+  Regression tests exercise the actual installed bundles and normal config merges.
+  The patch does not claim to sanitize data for another consumer's later unsafe
+  assignment, or to make hostile getters/custom callbacks safe. Version 4.3.1 is
+  retained honestly; the lockfile records the patch content hash. Remove the patch
+  when a reviewed official fix provides the same behavior and tests pass.
+
+Raw `pnpm audit` still reports three low findings because registry matching uses
+upstream versions rather than the reviewed local patch or corrected range data.
+This is not a claim of three unremediated reachable vulnerabilities, nor a claim
+that the registry reports zero. The fresh published consumer audit remains zero;
+these packages are development/build fixtures, not the shipped Lens runtime.
 
 The four Semgrep rules remain a bounded source-pattern check; passing them does
 not resolve dependency advisories. No audit suppressions, scanner exclusions,

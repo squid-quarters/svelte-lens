@@ -8,8 +8,8 @@ export default {
   kit: {
     adapter: adapter(),
     files: {
-      routes: shared("src/routes"),
-      appTemplate: shared("src/app.html"),
+      routes: "src/routes",
+      appTemplate: "src/app.html",
       assets: shared("static"),
     },
   },

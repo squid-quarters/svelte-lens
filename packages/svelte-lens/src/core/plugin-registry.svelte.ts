@@ -72,6 +72,10 @@ const reportHookError = (pluginName: string, hookName: string, error: unknown): 
 
 export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
   const plugins = new Map<string, RegisteredPlugin>();
+  const registrations = new Map<string, symbol>();
+  const actionOrder = new Map<string, number>();
+  let nextActionOrder = 0;
+  let disposed = false;
   const directOptionOverrides: Partial<ResolvedOptions> = {};
 
   const store = $state<PluginStoreState>({
@@ -88,6 +92,12 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     for (const { config } of plugins.values()) {
       if (config.theme) mergedTheme = mergeTheme(mergedTheme, config.theme);
       if (config.options) mergedOptions = { ...mergedOptions, ...definedOnly(config.options) };
+    }
+    // Visual action slots survive replacement; option/theme precedence still
+    // follows the latest registration in the map above.
+    for (const [, { config }] of [...plugins].sort(
+      ([a], [b]) => actionOrder.get(a)! - actionOrder.get(b)!,
+    )) {
       if (config.actions) mergedActions.push(...config.actions);
     }
 
@@ -99,6 +109,7 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
   };
 
   const setOptions = (updates: SettableOptions): void => {
+    if (disposed) return;
     for (const [optionKey, optionValue] of Object.entries(updates)) {
       // Guard against prototype pollution (CWE-1321).
       if (optionKey === "__proto__" || optionKey === "constructor" || optionKey === "prototype") {
@@ -115,12 +126,41 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     recompute();
   };
 
-  const register = (plugin: Plugin, api: SvelteLensAPI): void => {
-    if (plugins.has(plugin.name)) {
-      unregister(plugin.name);
+  const cleanup = (name: string, config: PluginConfig): void => {
+    try {
+      config.cleanup?.();
+    } catch (error) {
+      reportHookError(name, "cleanup", error);
     }
+  };
 
-    const config: PluginConfig = plugin.setup?.(api) ?? {};
+  const register = (plugin: Plugin, api: SvelteLensAPI): void => {
+    if (disposed) return;
+    const token = Symbol();
+    registrations.set(plugin.name, token);
+    if (!actionOrder.has(plugin.name)) actionOrder.set(plugin.name, nextActionOrder++);
+    const previous = plugins.get(plugin.name);
+    if (previous) {
+      plugins.delete(plugin.name);
+      recompute();
+      cleanup(plugin.name, previous.config);
+    }
+    if (disposed || registrations.get(plugin.name) !== token) return;
+
+    let config: PluginConfig;
+    try {
+      config = plugin.setup?.(api) ?? {};
+    } catch (error) {
+      if (registrations.get(plugin.name) === token) {
+        registrations.delete(plugin.name);
+        actionOrder.delete(plugin.name);
+      }
+      throw error;
+    }
+    if (disposed || registrations.get(plugin.name) !== token) {
+      cleanup(plugin.name, config);
+      return;
+    }
 
     if (plugin.theme) config.theme = { ...plugin.theme, ...config.theme };
     if (plugin.options) config.options = { ...plugin.options, ...config.options };
@@ -137,28 +177,36 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
   const getPlugin = (name: string): Plugin | undefined => plugins.get(name)?.plugin;
 
   const unregister = (name: string): void => {
+    registrations.delete(name);
+    actionOrder.delete(name);
     const registered = plugins.get(name);
     if (!registered) return;
     // Isolated so a throwing cleanup still unregisters the plugin and cannot
     // abort the caller's teardown (e.g. dispose()).
-    try {
-      registered.config.cleanup?.();
-    } catch (error) {
-      reportHookError(name, "cleanup", error);
-    }
     plugins.delete(name);
     recompute();
+    cleanup(name, registered.config);
+  };
+
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
+    registrations.clear();
+    for (const name of [...plugins.keys()]) unregister(name);
+    actionOrder.clear();
   };
 
   const getPluginNames = (): string[] => Array.from(plugins.keys());
 
   // Each plugin is isolated so one throwing hook cannot break the others or
   // the caller's state transition.
-  const callHook = <K extends keyof PluginHooks>(
+  const callGuardedHook = <K extends keyof PluginHooks>(
+    canRun: () => boolean,
     hookName: K,
     ...args: Parameters<NonNullable<PluginHooks[K]>>
   ): void => {
     for (const [name, { config }] of plugins) {
+      if (!canRun()) break;
       const hook = config.hooks?.[hookName] as
         ((...hookArgs: Parameters<NonNullable<PluginHooks[K]>>) => void) | undefined;
       if (!hook) continue;
@@ -169,6 +217,10 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
       }
     }
   };
+  const callHook = <K extends keyof PluginHooks>(
+    hookName: K,
+    ...args: Parameters<NonNullable<PluginHooks[K]>>
+  ): void => callGuardedHook(() => !disposed, hookName, ...args);
 
   const callHookWithIntercept = async <K extends keyof PluginHooks>(
     hookName: K,
@@ -176,6 +228,7 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
   ): Promise<boolean> => {
     let intercepted = false;
     for (const [name, { config }] of plugins) {
+      if (disposed) break;
       const hook = config.hooks?.[hookName] as
         | ((
             ...hookArgs: Parameters<NonNullable<PluginHooks[K]>>
@@ -193,9 +246,11 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
 
   const callHookAsync = async <K extends keyof PluginHooks>(
     hookName: K,
+    canRun: () => boolean,
     ...args: Parameters<NonNullable<PluginHooks[K]>>
   ): Promise<void> => {
     for (const { config } of plugins.values()) {
+      if (!canRun()) break;
       const hook = config.hooks?.[hookName];
       if (hook) {
         await (hook as (...hookArgs: typeof args) => unknown)(...args);
@@ -203,9 +258,14 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     }
   };
 
-  const reduceTransform = async (initial: string, elements: Element[]): Promise<string> => {
+  const reduceTransform = async (
+    initial: string,
+    elements: Element[],
+    canRun: () => boolean,
+  ): Promise<string> => {
     let result = initial;
     for (const { config } of plugins.values()) {
+      if (!canRun()) break;
       const hook = config.hooks?.transformCopyContent;
       if (hook) {
         result = await hook(result, elements);
@@ -218,12 +278,14 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     onActivate: () => callHook("onActivate"),
     onDeactivate: () => callHook("onDeactivate"),
     onElementSelect: (element: Element) => callHookWithIntercept("onElementSelect", element),
-    onBeforeCopy: (elements: Element[]) => callHookAsync("onBeforeCopy", elements),
-    transformCopyContent: (content: string, elements: Element[]) =>
-      reduceTransform(content, elements),
-    onAfterCopy: (elements: Element[], success: boolean) =>
-      callHook("onAfterCopy", elements, success),
-    onCopyError: (error: Error) => callHook("onCopyError", error),
+    onBeforeCopy: (elements: Element[], canRun = () => !disposed) =>
+      callHookAsync("onBeforeCopy", canRun, elements),
+    transformCopyContent: (content: string, elements: Element[], canRun = () => !disposed) =>
+      reduceTransform(content, elements, canRun),
+    onAfterCopy: (elements: Element[], success: boolean, canRun = () => !disposed) =>
+      callGuardedHook(canRun, "onAfterCopy", elements, success),
+    onCopyError: (error: Error, canRun = () => !disposed) =>
+      callGuardedHook(canRun, "onCopyError", error),
     onContextMenu: (element: Element, position: Position) =>
       callHook("onContextMenu", element, position),
   };
@@ -232,6 +294,7 @@ export const createPluginRegistry = (initialOptions: SettableOptions = {}) => {
     store,
     register,
     unregister,
+    dispose,
     isRegistered,
     getPlugin,
     getPluginNames,

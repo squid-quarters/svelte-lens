@@ -96,18 +96,28 @@ With `--stdio`, the server still listens on port 5174 for `/context`. If that po
 
 ## API
 
+Call `init()` after the component mounts so the overlay does not mount during
+SvelteKit hydration. Release the handle when the component is destroyed:
+
+```svelte
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { init } from "@gear-null/svelte-lens";
+
+  onMount(() => {
+    const api = init();
+    api.registerPlugin({
+      name: "my-plugin",
+      hooks: {
+        onAfterCopy: (elements, success) => console.log("copied", elements, success),
+      },
+    });
+    return () => api.dispose();
+  });
+</script>
+```
+
 ```ts
-import { init } from "@gear-null/svelte-lens";
-
-const api = init();
-
-api.registerPlugin({
-  name: "my-plugin",
-  hooks: {
-    onAfterCopy: (elements, success) => console.log("copied", elements, success),
-  },
-});
-
 // Other methods (a reference; they act on the shared instance):
 // api.activate()          turn the overlay on
 // api.deactivate()        turn it off
@@ -116,6 +126,15 @@ api.registerPlugin({
 ```
 
 Each `init()` call returns its own handle onto one shared instance, so any component can call it, in any mount order. svelte-lens keeps running until every handle has been disposed. A handle's `dispose()` removes the plugins registered through it and restores any plugin they had replaced. Registering or removing a plugin directly on the shared instance (module-level `registerPlugin`, `window.__SVELTE_LENS__`) always wins, and handles leaving later don't undo it. `window.__SVELTE_LENS__` is the shared instance itself, and its `dispose()` tears everything down.
+
+Disposed handles are inert. A pending copy stops before its next asynchronous
+phase when its handle is disposed; a clipboard write already handed to the
+browser cannot be revoked.
+
+`copyElement(element)` copies one element. For `copyElement([first, second])`,
+default content includes each element's preview and source stack in input order,
+separated by blank lines. Copy hooks and `getContent` receive the full array
+snapshot once; an empty array returns `false` without invoking them.
 
 ## License
 

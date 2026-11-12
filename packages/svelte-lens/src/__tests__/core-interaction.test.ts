@@ -14,7 +14,7 @@ const keyup = (init: KeyboardEventInit): void => {
   document.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, ...init }));
 };
 
-// jsdom has no PointerEvent; core only reads clientX/clientY.
+// Most cases use the minimal coordinate contract; native PointerEvent is tested separately.
 const pointerMove = (x: number, y: number): void => {
   document.dispatchEvent(new MouseEvent("pointermove", { clientX: x, clientY: y, bubbles: true }));
 };
@@ -113,6 +113,25 @@ describe("core/index.svelte.ts — interaction", () => {
   });
 
   describe("element detection (#1)", () => {
+    it("detects the target of a native bubbling PointerEvent", async () => {
+      const lens = await setup();
+      const target = makeEl("pointer-target");
+      lens.activate();
+      elementAt = target;
+      const event = new PointerEvent("pointermove", {
+        clientX: 13,
+        clientY: 27,
+        bubbles: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+      });
+      target.dispatchEvent(event);
+      expect(event).toBeInstanceOf(PointerEvent);
+      expect(document.elementsFromPoint).toHaveBeenCalledWith(13, 27);
+      expect(lens.getState().targetElement).toBe(target);
+    });
+
     it("detects the final pointer position after a throttled move", async () => {
       const lens = await setup();
       const a = makeEl("a");

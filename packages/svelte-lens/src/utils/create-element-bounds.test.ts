@@ -20,13 +20,20 @@ describe("createElementBounds", () => {
     div.remove();
   });
 
-  it("includes borderRadius from computed style", () => {
+  it("preserves authored stylesheet borderRadius and subsequent style changes", () => {
+    const style = document.createElement("style");
+    style.textContent = ".bounds-target { border-radius: 8px; }";
     const div = document.createElement("div");
-    div.style.borderRadius = "8px";
+    div.className = "bounds-target";
+    document.head.appendChild(style);
     document.body.appendChild(div);
-
-    const bounds = createElementBounds(div);
-    expect(bounds.borderRadius).toBeTruthy();
-    div.remove();
+    try {
+      expect(createElementBounds(div).borderRadius).toBe("8px");
+      style.textContent = ".bounds-target { border-radius: 12px; }";
+      expect(createElementBounds(div).borderRadius).toBe("12px");
+    } finally {
+      div.remove();
+      style.remove();
+    }
   });
 });

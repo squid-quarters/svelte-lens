@@ -132,6 +132,38 @@ describe("core/index.svelte.ts — interaction", () => {
       expect(lens.getState().targetElement).toBe(target);
     });
 
+    for (const mutation of ["child", "style"] as const) {
+      it(`refreshes surviving target geometry after a ${mutation} mutation`, async () => {
+        const lens = await setup();
+        const target = makeEl("stable");
+        let width = 100;
+        vi.spyOn(target, "getBoundingClientRect").mockImplementation(() => ({
+          x: 10,
+          y: 10,
+          left: 10,
+          top: 10,
+          right: 10 + width,
+          bottom: 30,
+          width,
+          height: 20,
+          toJSON: () => ({}),
+        }));
+        lens.activate();
+        elementAt = target;
+        pointerMove(11, 11);
+        await wait();
+        const overlay = [...getShadowRoot().querySelectorAll("div")].find(
+          (el) => el.style.width === "100px",
+        );
+        expect(overlay).toBeDefined();
+        width = 200;
+        if (mutation === "child") target.appendChild(document.createElement("span"));
+        else target.style.width = "200px";
+        await vi.waitFor(() => expect(overlay?.style.width).toBe("200px"));
+        expect(lens.getState().targetElement).toBe(target);
+      });
+    }
+
     it("detects the final pointer position after a throttled move", async () => {
       const lens = await setup();
       const a = makeEl("a");

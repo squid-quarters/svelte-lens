@@ -200,7 +200,11 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   // the toolbar and clicking it cannot leave a stale target for Cmd+C.
   const detectElement = (clientX: number, clientY: number, throughLensUi = false): void => {
     const element = getElementAtPosition(clientX, clientY, { throughLensUi });
-    if (element === store.state.detectedElement) return;
+    if (element === store.state.detectedElement) {
+      // Layout may change without replacing the target node.
+      updateSelectionFromElement(element);
+      return;
+    }
     store.setDetectedElement(element);
     updateSelectionFromElement(element);
   };
@@ -215,7 +219,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   const onPointerMove = (event: PointerEvent): void => {
     // Track the pointer even while inactive so activation can detect at once.
     store.setPointer({ x: event.clientX, y: event.clientY });
-    if (!store.state.isActive) return;
+    if (disposed || !store.state.isActive) return;
     // Freeze hover while the context menu is open so the highlight stays on
     // the element the menu acts on.
     if (renderState.contextMenuPosition) return;
@@ -238,36 +242,53 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     detectElement(event.clientX, event.clientY);
   };
 
-  const performCopy = async (element: Element): Promise<boolean> => {
-    if (copyInProgress) return false;
+  const performCopy = async (
+    target: Element | Element[],
+    ownerIsLive = () => true,
+  ): Promise<boolean> => {
+    const elements = Array.isArray(target) ? [...target] : [target];
+    const element = elements[0];
+    const canRun = () => !disposed && ownerIsLive();
+    if (!element || copyInProgress || !canRun()) return false;
     copyInProgress = true;
-    const elements = [element];
     renderState.selectionStatus = "copying";
     store.startCopy();
 
     try {
-      await pluginRegistry.hooks.onBeforeCopy(elements);
+      await pluginRegistry.hooks.onBeforeCopy(elements, canRun);
+      if (!canRun()) return false;
       const userContent = pluginRegistry.store.options.getContent
         ? await pluginRegistry.store.options.getContent(elements)
-        : await buildDefaultContent(element);
+        : (await Promise.all(elements.map(buildDefaultContent))).join("\n\n");
+      if (!canRun()) return false;
 
-      const finalContent = await pluginRegistry.hooks.transformCopyContent(userContent, elements);
+      const finalContent = await pluginRegistry.hooks.transformCopyContent(
+        userContent,
+        elements,
+        canRun,
+      );
+      if (!canRun()) return false;
 
       const success = await copyToClipboard(finalContent);
+      if (!canRun()) return false;
       if (!success) {
         throw new Error("Clipboard write failed");
       }
 
-      pluginRegistry.hooks.onAfterCopy(elements, true);
+      pluginRegistry.hooks.onAfterCopy(elements, true, canRun);
+      if (!canRun()) return false;
       store.completeCopy(element);
       renderState.selectionStatus = "copied";
       renderState.selectionStatusText = "Copied";
       scheduleStatusReset();
       return true;
     } catch (caught) {
+      if (!canRun()) return false;
       const error = caught instanceof Error ? caught : new Error(String(caught));
-      pluginRegistry.hooks.onCopyError(error);
-      pluginRegistry.hooks.onAfterCopy(elements, false);
+      pluginRegistry.hooks.onCopyError(error, canRun);
+      if (!canRun()) return false;
+      pluginRegistry.hooks.onAfterCopy(elements, false, canRun);
+      if (!canRun()) return false;
       store.completeCopy(element, error.message);
       renderState.selectionStatus = "error";
       renderState.selectionStatusText = error.message;
@@ -275,6 +296,11 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       return false;
     } finally {
       copyInProgress = false;
+      if (!disposed && !ownerIsLive()) {
+        store.state.isCopying = false;
+        renderState.selectionStatus = "idle";
+        renderState.selectionStatusText = undefined;
+      }
     }
   };
 
@@ -446,7 +472,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
 
   const showContextMenu = async (position: Position, element: Element): Promise<void> => {
     const source = await resolveSource(element);
-    if (!element.isConnected) return;
+    if (disposed || !element.isConnected) return;
     const ctx: ActionContext = {
       element,
       elements: [element],
@@ -488,9 +514,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       if (!menuElement.isConnected) dismissContextMenu();
       return;
     }
-    if (store.state.detectedElement?.isConnected === false) {
-      detectElement(store.state.pointer.x, store.state.pointer.y);
-    }
+    detectElement(store.state.pointer.x, store.state.pointer.y);
   };
   const domObserver =
     typeof MutationObserver === "undefined" ? null : new MutationObserver(onDomMutation);
@@ -501,7 +525,12 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     if (store.state.isActive) return;
     store.activate();
     renderState.isActive = true;
-    domObserver?.observe(document, { childList: true, subtree: true });
+    domObserver?.observe(document, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "hidden"],
+    });
     // Detect under the current pointer so a keyboard activation is usable
     // before the mouse moves.
     detectElement(store.state.pointer.x, store.state.pointer.y);
@@ -664,12 +693,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       renderState.enabled = value;
       if (!value) deactivate();
     },
-    copyElement: async (target: Element | Element[]) => {
-      const elements = Array.isArray(target) ? target : [target];
-      const first = elements[0];
-      if (!first) return false;
-      return performCopy(first);
-    },
+    copyElement: (target: Element | Element[]) => performCopy(target),
     getSource: resolveSource,
     getStackContext: getStackContext,
     getState: (): SvelteLensState => ({
@@ -680,10 +704,12 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     }),
     setOptions: (options: SettableOptions) => pluginRegistry.setOptions(options),
     registerPlugin: (plugin: Plugin) => {
+      if (disposed) return;
       detachHandleLayers(plugin.name);
       pluginRegistry.register(plugin, api);
     },
     unregisterPlugin: (name: string) => {
+      if (disposed) return;
       detachHandleLayers(name);
       pluginRegistry.unregister(name);
     },
@@ -691,11 +717,19 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     dispose: () => {
       // A second dispose() must not reset the init guard of a newer instance.
       if (disposed) return;
-      if (store.state.isActive) deactivate();
       disposed = true;
+      // A callback can init() again. Remove this host (and its pending attach)
+      // first so mountRoot cannot lend the new instance a root we will remove.
+      destroyMountRoot();
+      // Callbacks may init() a newer instance or reenter dispose().
+      if (guards.live?.api === api) guards.live = null;
+      if (typeof window !== "undefined" && window.__SVELTE_LENS__ === api) {
+        delete window.__SVELTE_LENS__;
+      }
+      if (store.state.isActive) deactivate();
       renderState.enabled = false;
       // Unregistering runs each plugin's setup() cleanup.
-      for (const name of pluginRegistry.getPluginNames()) pluginRegistry.unregister(name);
+      pluginRegistry.dispose();
       uninstallListeners();
       if (copyResetTimer) {
         clearTimeout(copyResetTimer);
@@ -705,7 +739,6 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       clearHold();
       if (mounted) void unmount(mounted);
       mounted = null;
-      destroyMountRoot();
       if (guards.live?.api === api) guards.live = null;
       if (typeof window !== "undefined" && window.__SVELTE_LENS__ === api) {
         delete window.__SVELTE_LENS__;
@@ -729,14 +762,25 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     // Another handle holding the same object shares its layer.
     if (top && top.plugin === plugin && top.holders > 0) {
       top.holders += 1;
-      if (!pluginRegistry.isRegistered(plugin)) pluginRegistry.register(plugin, api);
+      try {
+        if (!pluginRegistry.isRegistered(plugin)) pluginRegistry.register(plugin, api);
+      } catch (error) {
+        releaseLayer(top);
+        throw error;
+      }
       return top;
     }
     const layer: Layer = { plugin, holders: 1 };
     stack.push(layer);
     // Re-registering an object that is already in place would just rerun its
     // setup.
-    if (pluginRegistry.getPlugin(plugin.name) !== plugin) pluginRegistry.register(plugin, api);
+    try {
+      if (pluginRegistry.getPlugin(plugin.name) !== plugin) pluginRegistry.register(plugin, api);
+    } catch (error) {
+      // A failed setup never becomes owned by the calling handle.
+      releaseLayer(layer);
+      throw error;
+    }
     return layer;
   };
 
@@ -763,11 +807,38 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   const createHandle = (): SvelteLensAPI => {
     openHandles += 1;
     const registered = new Map<string, Layer>();
+    const operations = new Map<string, symbol>();
     let released = false;
+    const live = () => !released && !disposed;
+    const inert = createNoopApi();
     return markHandle(
       {
-        ...api,
+        activate: () => {
+          if (live()) api.activate();
+        },
+        deactivate: () => {
+          if (live()) api.deactivate();
+        },
+        toggle: () => {
+          if (live()) api.toggle();
+        },
+        setEnabled: (value) => {
+          if (live()) api.setEnabled(value);
+        },
+        setOptions: (options) => {
+          if (live()) api.setOptions(options);
+        },
+        isActive: () => live() && api.isActive(),
+        isEnabled: () => live() && api.isEnabled(),
+        getState: () => (live() ? api.getState() : inert.getState()),
+        getPlugins: () => (live() ? api.getPlugins() : []),
+        getSource: (element) => (live() ? api.getSource(element) : Promise.resolve(null)),
+        getStackContext: (element) => (live() ? api.getStackContext(element) : Promise.resolve("")),
+        copyElement: (target) => (live() ? performCopy(target, live) : Promise.resolve(false)),
         registerPlugin: (plugin: Plugin) => {
+          if (!live()) return;
+          const operation = Symbol();
+          operations.set(plugin.name, operation);
           const earlier = registered.get(plugin.name);
           // Registering it again (e.g. an effect re-running) puts it back on
           // top if another handle replaced it meanwhile. A layer a direct op
@@ -781,10 +852,17 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
             }
             return;
           }
-          registered.set(plugin.name, pushLayer(plugin));
+          const layer = pushLayer(plugin);
+          if (!live() || operations.get(plugin.name) !== operation) {
+            releaseLayer(layer);
+            return;
+          }
+          registered.set(plugin.name, layer);
           if (earlier) releaseLayer(earlier);
         },
         unregisterPlugin: (name: string) => {
+          if (!live()) return;
+          operations.delete(name);
           const layer = registered.get(name);
           if (!layer) {
             api.unregisterPlugin(name);
@@ -796,6 +874,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
         dispose: () => {
           if (released) return;
           released = true;
+          operations.clear();
           openHandles -= 1;
           // The last handle tears the instance down with its plugins still in
           // place, so they see the deactivation and their own cleanup.

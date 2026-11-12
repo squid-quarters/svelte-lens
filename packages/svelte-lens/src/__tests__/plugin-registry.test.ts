@@ -21,6 +21,35 @@ const noopApi: SvelteLensAPI = {
 };
 
 describe("createPluginRegistry", () => {
+  it("preserves replacement action slots without changing latest-option precedence", () => {
+    const registry = createPluginRegistry();
+    const action = (id: string) => ({ id, label: id, onAction: vi.fn() });
+    registry.register({ name: "copy", actions: [action("copy")], theme: { hue: 100 } }, noopApi);
+    registry.register({ name: "open", actions: [action("open")], theme: { hue: 200 } }, noopApi);
+    registry.register(
+      { name: "copy", actions: [action("copy-override")], theme: { hue: 300 } },
+      noopApi,
+    );
+    expect(registry.store.actions.map((a) => a.id)).toEqual(["copy-override", "open"]);
+    expect(registry.store.theme.hue).toBe(300);
+    registry.register({ name: "copy", actions: [action("copy")] }, noopApi);
+    expect(registry.store.actions.map((a) => a.id)).toEqual(["copy", "open"]);
+    expect(registry.store.theme.hue).toBe(200);
+  });
+
+  it("keeps a replacement registered by cleanup and cleans each registration once", () => {
+    const registry = createPluginRegistry();
+    const winner = { name: "same" };
+    const cleanup = vi.fn(() => {
+      registry.unregister("same");
+      registry.register(winner, noopApi);
+    });
+    registry.register({ name: "same", setup: () => ({ cleanup }) }, noopApi);
+    registry.unregister("same");
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(registry.getPlugin("same")).toBe(winner);
+  });
+
   it("starts with default options", () => {
     const registry = createPluginRegistry();
     expect(registry.store.options.activationMode).toBe("toggle");

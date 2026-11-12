@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Counter from "$lib/Counter.svelte";
-  import Card from "$lib/Card.svelte";
+  import Counter from "#lib/Counter.svelte";
+  import Card from "#lib/Card.svelte";
 
   const cards = [
     { title: "Hover", description: "Move your cursor over an element to highlight it." },

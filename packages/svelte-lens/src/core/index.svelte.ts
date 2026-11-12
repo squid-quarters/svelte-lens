@@ -199,7 +199,10 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
   // keeping the page element underneath, so the highlight is not drawn under
   // the toolbar and clicking it cannot leave a stale target for Cmd+C.
   const detectElement = (clientX: number, clientY: number, throughLensUi = false): void => {
-    const element = getElementAtPosition(clientX, clientY, { throughLensUi });
+    const candidate = getElementAtPosition(clientX, clientY, { throughLensUi });
+    // The document canvas is not a hovered page element. Explicit API Copy
+    // still accepts the root, and the body remains a legitimate target.
+    const element = candidate === document.documentElement ? null : candidate;
     if (element === store.state.detectedElement) {
       // Layout may change without replacing the target node.
       updateSelectionFromElement(element);
@@ -356,6 +359,13 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (!renderState.enabled) return;
+    // Inspection preserves the previously focused input. Escape still closes
+    // our open menu without taking over other input shortcuts.
+    if (event.key === "Escape" && store.state.isActive && renderState.contextMenuPosition) {
+      event.preventDefault();
+      deactivate();
+      return;
+    }
     if (
       !pluginRegistry.store.options.allowActivationInsideInput &&
       isKeyboardEventFromInput(event)
@@ -447,6 +457,20 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     const releasedHoldModifier =
       MODIFIER_KEYS.has(event.key) && holdModifiers?.[event.key as ModifierKey] === true;
     if (releasedHoldKey || releasedHoldModifier) endHold();
+  };
+
+  const onMouseDown = (event: MouseEvent): void => {
+    if (!store.state.isActive || event.button !== 2) return;
+    // Focus changes on mousedown, before contextmenu can cancel it. Only
+    // suppress secondary-button focus for a page target the lens inspects;
+    // primary clicks, inactive use and the lens's own controls stay native.
+    const throughBackdrop = event
+      .composedPath()
+      .some((node) => node instanceof Element && node.classList.contains("lens-menu-backdrop"));
+    const target = getElementAtPosition(event.clientX, event.clientY, {
+      throughLensUi: throughBackdrop,
+    });
+    if (target && target !== document.documentElement) event.preventDefault();
   };
 
   const onContextMenuEvent = (event: MouseEvent): void => {
@@ -624,6 +648,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("blur", endHold);
+    document.addEventListener("mousedown", onMouseDown, true);
     document.addEventListener("contextmenu", onContextMenuEvent, true);
     window.addEventListener("scroll", refreshSelectionBounds, true);
     window.addEventListener("resize", refreshSelectionBounds);
@@ -634,6 +659,7 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
     document.removeEventListener("keydown", onKeyDown, true);
     document.removeEventListener("keyup", onKeyUp, true);
     window.removeEventListener("blur", endHold);
+    document.removeEventListener("mousedown", onMouseDown, true);
     document.removeEventListener("contextmenu", onContextMenuEvent, true);
     window.removeEventListener("scroll", refreshSelectionBounds, true);
     window.removeEventListener("resize", refreshSelectionBounds);

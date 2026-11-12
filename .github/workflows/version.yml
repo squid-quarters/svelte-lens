@@ -33,7 +33,7 @@ jobs:
     # separate step triggered by creating a GitHub Release.
     if: "${{ !startsWith(github.event.head_commit.message, 'chore: version packages') }}"
     outputs:
-      pr: ${{ steps.changesets.outputs.pullRequestNumber }}
+      pr: ${{ steps.changesets.outputs.pr-number }}
       sha: ${{ steps.pushed.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
@@ -52,24 +52,29 @@ jobs:
 
       - name: Create or Update Version PR
         id: changesets
-        # Held at v1: v2 renames these inputs (and throws on the old names)
-        # and requires Changesets CLI v3. Migrate both together.
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # pin@v1.9.0
+        # CLI 3 and action 2 migrate together; publication stays release-only.
+        uses: changesets/action@22ccf9aa43179fe9e27dc62e575971d28cce197c # pin@v2.0.0
         with:
           # "pnpm run version" — the bare "pnpm version" invokes pnpm's
           # builtin version command, not the package.json script, so the
           # changeset bump never ran.
-          version: pnpm run version
-          title: "chore: version packages"
-          commit: "chore: version packages"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          version-script: pnpm run version
+          pr-title: "chore: version packages"
+          commit-message: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # changesets/action leaves the commit it pushed checked out.
-      - name: Record the pushed commit
+      # Action 2 pushes via the API without updating local HEAD. Bind the
+      # actual PR head to this run's base and generated content before the
+      # separate App job receives it.
+      - name: Record the verified pushed commit
         id: pushed
-        if: steps.changesets.outputs.pullRequestNumber != ''
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        if: steps.changesets.outputs.pr-number != ''
+        env:
+          VERSION_PR_NUMBER: ${{ steps.changesets.outputs.pr-number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/version-pr-head.mjs
 
   # The Version PR is pushed with GITHUB_TOKEN, whose pull_request runs
   # wait for a maintainer's approval (and dispatched runs don't count for

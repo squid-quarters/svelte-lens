@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { dev } from "$app/environment";
   import { onMount } from "svelte";
 
   let { children } = $props();
 
   onMount(() => {
-    if (dev) {
+    if (import.meta.env.DEV) {
       void import("@gear-null/svelte-lens").then((m) => m.init());
     }
   });

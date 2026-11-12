@@ -1,6 +1,6 @@
 # Local commit quality contract
 
-Use Node 24.22.1 (`.nvmrc`), Corepack’s pinned pnpm 9.15.0, Git, Docker,
+Use Node 24.22.1 (`.nvmrc`), Corepack’s pinned pnpm 10.34.9, Git, Docker,
 and an installed Playwright Chromium matching the lockfile. Run
 `pnpm --filter @svelte-lens/e2e-app exec playwright install chromium` once
 if the browser is missing. Then run `pnpm quality:install` in this checkout.
@@ -19,10 +19,19 @@ checked again before a pass. Cancellation discovers owned descendants by ancestr
 
 The full sequence is recorded in `.local-quality.json`: frozen installation,
 gate safety fixtures, formatting, lint, security, build, type checking, unit
-tests, package/CLI/MCP validation, floor-Svelte browser tests, then latest-Svelte
+tests, package/CLI/MCP validation, Kit 3 browser tests, the Kit 2/Svelte 5.56.3 consumer fixture, then latest-Svelte
 browser tests. Browser tests use one worker, no retries and strict port 5174;
 a running server on that port causes failure. They run headlessly. Normal
 build-tool caches may be used; receipts never skip a gate invocation.
+
+The private Kit 2 compatibility fixture shares the Kit 3 harness’s application
+source and tests, but pins the consumer runtime to Svelte 5.56.3. Its Vite plugin
+asserts resolution from both the application and built library to that exact
+runtime. This proves consumer runtime coverage in addition to the library’s
+compiler-floor assertion. Its build/check/browser command runs serially in the
+existing E2E CI job and local gate, not in every root Turbo build. Known legacy
+fixture advisories and the unpatched build-time dependency are documented in
+`SECURITY_AUDIT.md`.
 
 The latest-peer check deliberately changes only the app manifest and lockfile
 inside the verified disposable snapshot. It resolves the registry version

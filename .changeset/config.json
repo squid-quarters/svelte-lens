@@ -2,7 +2,9 @@
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
   "changelog": [
     "@changesets/changelog-github",
-    { "repo": "squid-quarters/svelte-lens" }
+    {
+      "repo": "squid-quarters/svelte-lens"
+    }
   ],
   "commit": false,
   "fixed": [],
@@ -10,5 +12,8 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@svelte-lens/e2e-app"]
+  "ignore": [
+    "@svelte-lens/e2e-app",
+    "@svelte-lens/e2e-floor"
+  ]
 }

@@ -1,0 +1,26 @@
+{
+  "name": "@svelte-lens/e2e-floor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 5174",
+    "test:e2e": "pnpm build:compat && pnpm check:compat && playwright test",
+    "build:compat": "vite build",
+    "check:compat": "svelte-kit sync && svelte-check --tsconfig tsconfig.json"
+  },
+  "dependencies": {
+    "@gear-null/svelte-lens": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@sveltejs/adapter-auto": "7.0.1",
+    "@sveltejs/kit": "2.70.4",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^22.20.5",
+    "svelte": "5.56.3",
+    "svelte-check": "^4.7.6",
+    "typescript": "5.9.3",
+    "vite": "^8.3.4"
+  }
+}

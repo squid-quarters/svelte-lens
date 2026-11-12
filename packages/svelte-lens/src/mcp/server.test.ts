@@ -90,6 +90,21 @@ afterEach(async () => {
 });
 
 describe("MCP HTTP server", () => {
+  it("validates context arrays and stays responsive after invalid input", async () => {
+    const { createHttpServer } = await loadServer();
+    server = createHttpServer(0);
+    const port = await listen(server);
+    const submit = (value: unknown) =>
+      send(port, "POST", "/context", JSON.stringify(value), { "Content-Type": "application/json" });
+    expect((await submit({ content: Array(2048).fill(null) })).status).toBe(400);
+    expect((await submit({ content: ["first", "second"], prompt: "schema fixture" })).status).toBe(
+      200,
+    );
+    expect((await submit({ content: [], prompt: 123 })).status).toBe(400);
+    expect((await submit({ content: [] })).status).toBe(200);
+    expect((await send(port, "GET", "/health")).status).toBe(200);
+  });
+
   it("survives a client aborting a POST /context upload mid-body", async () => {
     const { createHttpServer } = await loadServer();
     server = createHttpServer(0);

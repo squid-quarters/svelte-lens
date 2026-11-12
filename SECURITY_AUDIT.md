@@ -30,7 +30,7 @@
 | 7   | 🟠  | CI/CD          | Third-party actions pinned to mutable tags, not commit SHAs                           |
 | 8   | 🟠  | Repo settings  | Dependabot **security** updates disabled                                              |
 | 9   | 🟠  | Repo settings  | Secret scanning + push protection disabled (free for public repos)                    |
-| 10  | 🟡  | Dependency     | `element-source` declares license **"Proprietary"** — license-compatibility ambiguity |
+| 10  | 🟡  | Dependency     | `element-source` MIT license verified in the npm artifact (#10 resolved)              |
 | 11  | 🟡  | Dependency     | `element-source` is at `^0.0.5`, transitively pulls `bippy` (React internals hack)    |
 | 12  | 🟡  | CI/CD          | `Summarize release` step interpolates `publishedPackages` JSON directly into shell    |
 | 13  | 🟡  | Runtime        | `window.__SVELTE_LENS__` is writable; any 3rd-party script can replace the API        |
@@ -314,23 +314,14 @@ gh api repos/gear-null/svelte-lens \
 
 ---
 
-## 10. 🟡 `element-source` declares "Proprietary" license
+## 10. ℹ️ `element-source` licensing — verified MIT
 
-```bash
-$ npm view element-source license
-Proprietary
-```
-
-`@gear-null/svelte-lens` is published under MIT, with `element-source@^0.0.5` as a runtime dependency. MIT permits redistribution under different licenses, but a proprietary direct dep:
-
-- Creates ambiguity about the effective license bundle a user gets.
-- Could expose downstream users to license-compliance issues (most enterprise SCA tools flag "Proprietary" in dep tree).
-
-**Remediation**:
-
-1. Open an issue at the upstream `element-source` repo asking for a clear OSS license (the README likely intends MIT but the package.json says Proprietary).
-2. As a temporary mitigation, document the dep tree in the README and clarify that `element-source` is required at runtime and inherits its author's license terms.
-3. Consider vendoring just the source-resolution helper if upstream is unresponsive (small enough).
+Rechecked 2026-11-12: the actual `element-source@0.0.5` npm package contains
+an MIT `LICENSE`, copyright 2026 Aiden Bai. Its registry manifest omits the
+`license` field; it does not declare "Proprietary". The earlier statement in
+this report is superseded by the package artifact and
+[upstream MIT license](https://github.com/aidenybai/element-source/blob/main/LICENSE).
+No replacement dependency or new license agreement is required for this finding.
 
 ---
 
@@ -706,7 +697,7 @@ Full-project re-review after the round-1 remediation PRs (#11, #14, #16, #17, #1
 - Fixed and verified: #1, #2, #4, #5, #6, #7, #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #23.
 - Fixed via repo settings: #8, #9 (dependabot security updates, secret scanning + push protection now enabled).
 - Fixed by release: #3 — `@gear-null/svelte-lens@1.0.1` was published from `.github/workflows/release.yml` (tag `@gear-null/svelte-lens@1.0.1`) with an SLSA v1 provenance attestation (verify: `npm view @gear-null/svelte-lens@1.0.1 dist.attestations`). `1.0.0` stays unattested; optionally `npm deprecate @gear-null/svelte-lens@1.0.0 "no provenance attestation; upgrade to >= 1.0.1"`.
-- Still open: #10 (`element-source` license still unclear upstream), #22 (rolling maintenance).
+- Still open from this list: #22 (rolling maintenance). Finding #10 was resolved by artifact verification on 2026-11-12.
 - Note on #11: `^0.0.5` is semantically exact for a `0.0.x` version (caret cannot move the leftmost non-zero digit), so no pinning change is required.
 
 ## Round-2 findings
@@ -738,3 +729,32 @@ Round 1 removed auto-init (#4) but left `init()` unguarded: a consumer that call
 ### 28. 🟢 Smoke test version pinning
 
 The `workflow_run` payload has no `release` context, so `RELEASE_TAG` was always empty and the post-publish "verify installed version matches" step was silently skipped (the test always exercised `latest`). The version is now derived from `github.event.workflow_run.head_branch`, which carries the release tag for release-triggered runs and still passes the semver allowlist.
+
+## Dependency reassessment — 2026-11-12
+
+The previous lockfile reported 10 advisories: 2 high, 3 moderate and 5 low.
+The dependency closeout updates MCP SDK to 1.32.2 and Zod to 4.6.7, and refreshes
+compatible `body-parser`, `qs` and `fast-uri` resolutions. Real HTTP regression
+coverage verifies valid, empty and invalid context arrays and optional prompts.
+The updated workspace audit reports 0 high, 0 moderate and 3 low findings. A fresh
+consumer installation of the locally packed candidate, without workspace
+overrides, reports 0 dependency advisories. Audit results describe the current
+registry data and dependency graph, not a guarantee against future findings.
+
+Residual workspace findings are explicit:
+
+- Two low Kit 2 advisories remain only in the private consumer-floor compatibility
+  fixture: enhanced-form redirection and prerendered cache-header injection.
+  The fixture shares the static playground routes (no enhanced forms or external
+  data), runs on loopback for tests, and is neither published nor deployed. Kit 3
+  cannot test the supported Svelte 5.56.3 floor, so replacing this fixture with Kit
+  3 would lose that consumer coverage. The main development harness uses Kit 3.
+- [deepmerge GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
+  has no patched registry release; latest remains 4.3.1. The current Svelte Vite
+  plugin uses it to merge trusted build configuration. It is not part of the
+  published Lens runtime. Track [upstream issue 273](https://github.com/TehShrike/deepmerge/issues/273)
+  rather than force an incompatible or older version.
+
+The four Semgrep rules remain a bounded source-pattern check; passing them does
+not resolve dependency advisories. No audit suppressions, scanner exclusions,
+credential changes or repository-security changes were introduced.

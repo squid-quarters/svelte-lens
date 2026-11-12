@@ -1,5 +1,13 @@
 # @gear-null/svelte-lens
 
+## 1.0.9
+
+### Patch Changes
+
+- [#75](https://github.com/squid-quarters/svelte-lens/pull/75) [`4511547`](https://github.com/squid-quarters/svelte-lens/commit/4511547d602ec622875330bb078600b3286360f7) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Preserve page focus when opening the lens context menu, let Escape close it from a previously focused input, and avoid automatically selecting the empty document canvas. Explicit root and body Copy remain supported.
+
+- [#75](https://github.com/squid-quarters/svelte-lens/pull/75) [`4511547`](https://github.com/squid-quarters/svelte-lens/commit/4511547d602ec622875330bb078600b3286360f7) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Update MCP SDK and Zod validation dependencies to patched versions and verify context array validation remains compatible.
+
 ## 1.0.8
 
 ### Patch Changes

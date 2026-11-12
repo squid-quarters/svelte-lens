@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn as nativeSpawn } from "node:child_process";
 import {
   symlinkSync,
   copyFileSync,
@@ -15,6 +15,19 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { checkEnvironment, installHook, runQuality as runQualityImpl } from "./local-quality.mjs";
+
+import { processTable, rememberDescendants, signalOwned } from "./owned-process.mjs";
+function spawn(...args) {
+  const child = nativeSpawn(...args),
+    known = new Map();
+  rememberDescendants(processTable(), child.pid, known);
+  child.kill = (signal) => {
+    rememberDescendants(processTable(), child.pid, known);
+    signalOwned(known, signal);
+    return true;
+  };
+  return child;
+}
 
 const runQuality = (root, options = {}) =>
   runQualityImpl(root, { packageVersion: () => "10.16.1", ...options });
@@ -36,6 +49,11 @@ function fixture(t) {
   const root = mkdtempSync(resolve(tmpdir(), "sq-quality-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   git(root, "init", "-q");
+  mkdirSync(resolve(root, ".github/scripts"), { recursive: true });
+  copyFileSync(
+    new URL("./owned-process.mjs", import.meta.url),
+    resolve(root, ".github/scripts/owned-process.mjs"),
+  );
   git(root, "config", "user.name", "Quality Fixture");
   git(root, "config", "user.email", "fixture@example.invalid");
   for (const file of [".github/scripts/local-quality.mjs", ".githooks/pre-commit"]) {
@@ -302,11 +320,9 @@ test("cancellation kills a TERM-ignoring descendant after its leader exits", asy
     }, 5000).unref();
   });
   const pid = Number(readFileSync(pidfile, "utf8"));
-  t.after(() => {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {}
-  });
+  const known = new Map();
+  rememberDescendants(processTable(), pid, known);
+  t.after(() => signalOwned(known, "SIGKILL"));
   child.kill("SIGTERM");
   assert.equal(await exit, 1);
   clearTimeout(timeout);
@@ -340,4 +356,17 @@ test("installer refuses to disable other active default Git hooks", (t) => {
     "false",
   );
   assert.equal(readFileSync(hook, "utf8"), "#!/bin/sh\nexit 7\n");
+});
+
+test("preflight failure replaces prior success evidence", async (t) => {
+  const root = fixture(t);
+  await runQuality(root, { run: async () => ({ status: 0 }) });
+  const path = resolve(root, ".git/local-quality/last.json"),
+    before = JSON.parse(readFileSync(path, "utf8"));
+  await assert.rejects(runQuality(root, { packageVersion: () => "0.0.0" }), /Use pnpm/);
+  const after = JSON.parse(readFileSync(path, "utf8"));
+  assert.equal(after.status, "failed");
+  assert.equal(after.phase, "preflight");
+  assert.equal(after.tree, null);
+  assert.notEqual(after.attemptId, before.attemptId);
 });

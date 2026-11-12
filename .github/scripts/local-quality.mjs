@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { runOwned } from "./owned-process.mjs";
 import {
   chmodSync,
   accessSync,
@@ -44,6 +45,11 @@ export function checkEnvironment(env) {
     "LC_ALL",
     "PNPM_HOME",
     "XDG_CACHE_HOME",
+    "PLAYWRIGHT_BROWSERS_PATH",
+    "npm_config_cache",
+    "npm_config_offline",
+    "npm_config_logs_dir",
+    "COREPACK_ENABLE_NETWORK",
   ];
   return {
     ...Object.fromEntries(allowed.filter((key) => env[key]).map((key) => [key, env[key]])),
@@ -147,29 +153,50 @@ function assertRaw(files) {
   }
 }
 
-async function runCommand(bin, args, options, onChild) {
-  return new Promise((resolveResult) => {
-    const child = spawn(bin, args, { ...options, detached: process.platform !== "win32" });
-    onChild(child);
-    child.once("error", (error) => resolveResult({ status: null, error }));
-    child.once("close", (status, signal) => resolveResult({ status, signal }));
-  });
+const runCommand = runOwned;
+
+export async function runQuality(root, options = {}) {
+  const attemptId = randomUUID(),
+    startedAt = new Date().toISOString();
+  try {
+    return await runQualityChecked(root, { ...options, attemptId });
+  } catch (error) {
+    const target = resolve(root, git(root, ["rev-parse", "--git-path", "local-quality/last.json"]));
+    let prior;
+    try {
+      prior = JSON.parse(readFileSync(target, "utf8"));
+    } catch {}
+    const receipt =
+      prior?.attemptId === attemptId
+        ? prior
+        : { attemptId, startedAt, phase: "preflight", tree: null, reuse: false };
+    receipt.status = "failed";
+    receipt.error = error.message;
+    receipt.finishedAt = new Date().toISOString();
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, JSON.stringify(receipt, null, 2) + "\n");
+    throw error;
+  }
 }
 
-export async function runQuality(
+async function runQualityChecked(
   root,
   {
     run = runCommand,
     now = () => new Date(),
+    attemptId,
     packageVersion = (env) => execFileSync("pnpm", ["--version"], { env, encoding: "utf8" }).trim(),
   } = {},
 ) {
   const tree = git(root, ["write-tree"]);
   const head = git(root, ["rev-parse", "HEAD"]);
   const blobs = Object.fromEntries(
-    [script, hook, configFile].map((file) => [file, git(root, ["show", `:${file}`])]),
+    [script, hook, configFile, ".github/scripts/owned-process.mjs"].map((file) => [
+      file,
+      git(root, ["show", `:${file}`]),
+    ]),
   );
-  for (const file of [script, hook]) {
+  for (const file of [script, hook, ".github/scripts/owned-process.mjs"]) {
     if (readFileSync(resolve(root, file), "utf8").trim() !== blobs[file]) {
       throw new Error(
         `${file} differs from the staged gate. Stage the intended gate files before committing.`,
@@ -222,6 +249,7 @@ export async function runQuality(
   );
   const snapshot = resolve(directory, "snapshot");
   const receipt = {
+    attemptId,
     version: 1,
     tree,
     parentHead: head,
@@ -245,32 +273,25 @@ export async function runQuality(
   let registered = false;
   let child;
   let interrupted;
-  let killTimer;
-  let terminated;
+  let terminated, cancellationFailed;
+  const cancellationFailure = new Promise((done) => {
+    cancellationFailed = done;
+  });
   const terminate = (signal) => {
     interrupted = signal;
-    if (!child?.pid) return;
-    if (terminated) return;
-    const pid = child.pid;
-    const kill = (value) => {
-      try {
-        process.kill(process.platform === "win32" ? pid : -pid, value);
-      } catch (error) {
-        if (error.code !== "ESRCH") throw error;
-      }
-    };
-    kill("SIGTERM");
-    terminated = new Promise((done) => {
-      killTimer = setTimeout(() => {
-        kill("SIGKILL");
-        done();
-      }, 5000);
-    });
+    if (child?.cancel && !terminated)
+      terminated = Promise.resolve()
+        .then(() => child.cancel(signal))
+        .catch((error) => {
+          receipt.processCleanupFailed = true;
+          cancellationFailed({ status: null, error, cleanupUncertain: true, pid: child?.pid });
+        });
   };
   const onInt = () => terminate("SIGINT");
   const onTerm = () => terminate("SIGTERM");
   process.on("SIGINT", onInt);
   process.on("SIGTERM", onTerm);
+  let failure;
   try {
     git(root, ["worktree", "add", "--detach", "--no-checkout", snapshot, head], env);
     registered = true;
@@ -287,14 +308,19 @@ export async function runQuality(
       const start = Date.now();
       if (interrupted) throw new Error(`Interrupted by ${interrupted}`);
       // oxlint-disable-next-line no-await-in-loop -- Keep builds and emulators serial.
-      const result = await run(
-        args[0],
-        args.slice(1),
-        { cwd: snapshot, env, stdio: "inherit" },
-        (value) => {
+      const result = await Promise.race([
+        run(args[0], args.slice(1), { cwd: snapshot, env, stdio: "inherit" }, (value) => {
           child = value;
-        },
-      );
+          if (interrupted) terminate(interrupted);
+        }),
+        cancellationFailure,
+      ]);
+      if (result.cleanupUncertain) {
+        receipt.processCleanupFailed = true;
+        receipt.uncertainProcessIdentities = result.owned;
+        receipt.uncertainChildPid = result.pid;
+        receipt.retainedSnapshot = snapshot;
+      }
       child = undefined;
 
       if (interrupted) throw new Error(`Interrupted by ${interrupted}`);
@@ -302,6 +328,7 @@ export async function runQuality(
         command: args,
         exit: result.status,
         signal: result.signal ?? null,
+        processIdentities: result.owned ?? [],
         seconds: (Date.now() - start) / 1000,
       });
       if (result.status !== 0 || result.error || result.signal)
@@ -341,29 +368,38 @@ export async function runQuality(
         "Staged tree or HEAD changed during checks. Retry the commit against the new snapshot.",
       );
     receipt.status = "passed";
-    return receipt;
+  } catch (error) {
+    failure = error;
   } finally {
-    // Wait for the captured group, even if its leader exited before descendants.
-    if (terminated) await terminated;
+    try {
+      if (terminated) await terminated;
+    } catch (error) {
+      receipt.status = "failed";
+      receipt.processCleanupFailed = true;
+      failure = error;
+    }
     process.removeListener("SIGINT", onInt);
     process.removeListener("SIGTERM", onTerm);
-    clearTimeout(killTimer);
     receipt.interruptedBy = interrupted ?? null;
-    receipt.finishedAt = now().toISOString();
-    // Every commit runs fresh; receipts are evidence, never a skip/cache authorization.
     const target = resolve(root, git(root, ["rev-parse", "--git-path", "local-quality/last.json"]));
     try {
+      if (!receipt.processCleanupFailed) {
+        if (registered) git(root, ["worktree", "remove", "--force", snapshot], env);
+        rmSync(directory, { recursive: true, force: true });
+      }
+    } catch (error) {
+      receipt.status = "failed";
+      receipt.cleanupFailed = true;
+      failure ??= error;
+    } finally {
+      receipt.finishedAt = now().toISOString();
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, `${JSON.stringify(receipt, null, 2)}\n`);
       process.stdout.write(`Local quality receipt: ${target} (${receipt.status})\n`);
-    } finally {
-      try {
-        if (registered) git(root, ["worktree", "remove", "--force", snapshot], env);
-      } finally {
-        rmSync(directory, { recursive: true, force: true });
-      }
     }
   }
+  if (failure) throw failure;
+  return receipt;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

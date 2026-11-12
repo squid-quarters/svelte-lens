@@ -125,6 +125,9 @@ jobs:
       - name: Run Kit 2 consumer-floor E2E tests
         run: pnpm --filter @svelte-lens/e2e-floor test:e2e --workers=1 --retries=0
 
+      - name: Verify inspection opt-in preserves production SSR
+        run: node .github/scripts/ci-production-ssr.mjs
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # pin@v7.0.2
         if: failure()
         with:

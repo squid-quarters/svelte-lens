@@ -11,6 +11,7 @@
     ["pnpm", "--filter", "@gear-null/svelte-lens", "test:package"],
     ["pnpm", "--filter", "@svelte-lens/e2e-app", "test:e2e", "--workers=1", "--retries=0"],
     ["pnpm", "--filter", "@svelte-lens/e2e-floor", "test:e2e", "--workers=1", "--retries=0"],
+    ["node", ".github/scripts/ci-production-ssr.mjs"],
     ["node", ".github/scripts/ci-latest.mjs"]
   ],
   "tools": [

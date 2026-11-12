@@ -1,5 +1,11 @@
 # @gear-null/svelte-lens
 
+## 1.0.8
+
+### Patch Changes
+
+- [#73](https://github.com/squid-quarters/svelte-lens/pull/73) [`7a8152f`](https://github.com/squid-quarters/svelte-lens/commit/7a8152f3106d8b32e850c6bdefabbbb665d6c012) Thanks [@DoisKoh](https://github.com/DoisKoh)! - Keep Copy feedback and the selected element stable across unrelated DOM mutations, while refreshing its geometry and redetecting removed targets.
+
 ## 1.0.7
 
 ### Patch Changes

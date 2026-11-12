@@ -514,7 +514,12 @@ export const init = (rawOptions?: Options): SvelteLensAPI => {
       if (!menuElement.isConnected) dismissContextMenu();
       return;
     }
-    detectElement(store.state.pointer.x, store.state.pointer.y);
+    const selected = store.state.detectedElement;
+    // A DOM mutation is not a pointer move. Keep an existing selection (and
+    // its Copy feedback) while refreshing geometry; only retarget when the
+    // selected node disappeared, or there was no selection to begin with.
+    if (selected?.isConnected) updateSelectionFromElement(selected);
+    else detectElement(store.state.pointer.x, store.state.pointer.y);
   };
   const domObserver =
     typeof MutationObserver === "undefined" ? null : new MutationObserver(onDomMutation);

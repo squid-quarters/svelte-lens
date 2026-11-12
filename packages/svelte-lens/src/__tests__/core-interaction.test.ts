@@ -107,8 +107,17 @@ describe("core/index.svelte.ts — interaction", () => {
       await wait(10);
 
       expect(writeText.mock.calls[0]![0]).toContain('id="icon"');
+      // A delayed page mutation (including the mount-root attachment) must
+      // refresh the copied target rather than retarget under the old pointer.
+      makeEl("unrelated-mutation");
+      await wait();
       expect(lens.getState().targetElement).toBe(icon);
       expect(getShadowRoot().querySelector(".lens-label")?.textContent).toContain("Copied");
+
+      // Mutations preserve feedback, but a real later pointer move retargets.
+      pointerMove(50, 50);
+      await wait(20);
+      expect(lens.getState().targetElement).toBe(neighbour);
     });
   });
 

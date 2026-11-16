@@ -53,7 +53,7 @@ jobs:
       - name: Create or Update Version PR
         id: changesets
         # CLI 3 and action 2 migrate together; publication stays release-only.
-        uses: changesets/action@22ccf9aa43179fe9e27dc62e575971d28cce197c # pin@v2.0.0
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # pin@v2.1.2
         with:
           # "pnpm run version" — the bare "pnpm version" invokes pnpm's
           # builtin version command, not the package.json script, so the

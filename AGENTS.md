@@ -1,62 +1,10 @@
 # AGENTS.md — svelte-lens
 
-## Org conventions
+Read the [adopted common review and integration rules](https://github.com/squid-quarters/.github/blob/9efdabfe3ffe356c9bd82f7f8ef0a71ef0531b7b/REVIEW.md) before working on changes. Apply the local rules below.
 
-<https://github.com/gear-null/.github/blob/main/AGENTS.md> is the
-cross-repo source of truth. Key rules reproduced here for locality:
-
-### Branching
-
-GitHub Flow: `main` is the canonical branch. Cut feature branches from
-`main`; PRs target `main`. Use `type/short-description` branch names
-(`feat/…`, `fix/…`, etc.).
-
-### Commits
-
-Conventional Commits: `type(scope): description`.
-
-### Pull requests
-
-All changes land via PR — never commit directly to `main`. Keep PRs
-scoped to one logical change. PRs are lightweight: a short description
-of intent and key design decisions is sufficient — no template required.
-
-### Verify before commit
-
-Run every check the repo configures — lint, type-check, build, and
-tests — and make them all pass. Do not skip checks or bypass hooks
-(`--no-verify`, etc.) to push past failures; fix the underlying issue.
-
-### Agent autonomy & pre-merge review
-
-When working at high autonomy, every PR you cut MUST pass an
-agent-driven pre-merge review loop before it's presented to a developer:
-
-1. Author the change on a feature branch; run all checks green.
-2. Spawn separate agent code reviews — as many as the change warrants
-   (parallel specialists across code, tests, behavior).
-3. Analyze every review's findings; fix all important issues on the
-   same branch.
-4. Re-run all tests and checks after the fixes.
-5. Repeat steps 2–4 iteratively until a review pass surfaces no
-   important issues.
-6. Only then present the work back to the developer for review.
-
-CI green is necessary but not sufficient — the review loop catches what
-CI and self-review miss. Do not surface a PR for human review mid-loop.
-
-### Tracked work
-
-Track this local-gate rollout in the existing human-owned Paperclip GEA-64.
-Do not create a duplicate GitHub issue or assign a Paperclip agent. Other
-non-trivial work should use its established human-owned tracker.
-
-### Defaults
-
-- Stay in scope. No files created unless asked, no refactors, and no
-  speculative error handling beyond the task.
-
----
+Project work uses the common tier. The npm package uses the public installed-tool
+delivery gates. Routine PRs target `main`. Use GitHub Issues for new non-trivial
+work. GEA-64 is the historical gate rollout.
 
 ## Project-specific conventions
 
@@ -103,13 +51,15 @@ system, or the browser runtime must be reviewed with extra care for:
 
 ### Release workflow
 
-Publishing is a **two-step, human-gated** process. The Version PR bumps
-package versions; creating a GitHub Release is the explicit publish
-trigger. AI agents may cut releases by following this procedure:
+The Version PR bumps package versions. Publishing a GitHub Release triggers
+npm publication, as does the emergency workflow dispatch. Obtain Dois's
+authorization before either publish action. Verify the release candidate via
+the consumer install path and record recovery before publication.
 
 #### Step 1 — Create a changeset and bump versions
 
-1. Run `pnpm changeset`. Choose `patch` | `minor` | `major` and write a
+1. For shipping changes, run `pnpm changeset`. Docs-only PRs can use the
+   exemption in the PR template. Choose `patch` | `minor` | `major` and write a
    summary. This creates a markdown file under `.changeset/`.
 2. Commit the changeset file and push to `main` (via PR).
 3. The `version.yml` workflow picks up the changeset and opens/updates

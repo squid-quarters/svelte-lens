@@ -122,8 +122,11 @@ jobs:
       - name: Run Kit 3 E2E tests
         run: pnpm --filter @svelte-lens/e2e-app test:e2e --workers=1 --retries=0
 
-      - name: Run Kit 2 consumer-floor E2E tests
+      - name: Run Kit 3 consumer-floor E2E tests
         run: pnpm --filter @svelte-lens/e2e-floor test:e2e --workers=1 --retries=0
+
+      - name: Run legacy Kit 2 consumer-floor E2E tests
+        run: pnpm --filter @svelte-lens/e2e-kit2-floor test:e2e --workers=1 --retries=0
 
       - name: Verify inspection opt-in preserves production SSR
         run: node .github/scripts/ci-production-ssr.mjs
@@ -135,6 +138,7 @@ jobs:
           path: |
             apps/e2e-app/test-results
             apps/e2e-floor/test-results
+            apps/e2e-kit2-floor/test-results
           retention-days: 7
 
   package-validation:

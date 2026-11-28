@@ -19,20 +19,20 @@ checked again before a pass. Cancellation discovers owned descendants by ancestr
 
 The full sequence is recorded in `.local-quality.json`: frozen installation,
 gate safety fixtures, formatting, lint, security, build, type checking, unit
-tests, package/CLI/MCP validation, Kit 3 browser tests, the Kit 2/Svelte 5.56.3 consumer fixture, then latest-Svelte
+tests, package/CLI/MCP validation, Kit 3 browser tests, the Kit 3/Svelte 5.57.1 and legacy Kit 2/Svelte 5.56.3 consumer fixtures, then latest-Svelte
 browser tests. Production-preview HTTP checks verify that the opt-in metadata
 inspection route retains SSR in production on both Kit versions. Browser tests use one worker, no retries and strict port 5174;
 a running server on that port causes failure. They run headlessly. Normal
 build-tool caches may be used; receipts never skip a gate invocation.
 
-The private Kit 2 compatibility fixture shares the Kit 3 harness’s application
+The private `e2e-kit2-floor` Kit 2 compatibility fixture shares the Kit 3 harness’s application
 source and tests, but pins the consumer runtime to Svelte 5.56.3. Its Vite plugin
 asserts resolution from both the application and built library to that exact
 runtime. This proves consumer runtime coverage in addition to the library’s
 compiler-floor assertion. Its build/check/browser command runs serially in the
 existing E2E CI job and local gate, not in every root Turbo build. Known legacy
 fixture advisories and the unpatched build-time dependency are documented in
-`SECURITY_AUDIT.md`.
+`SECURITY_AUDIT.md`. The `e2e-floor` fixture pairs Kit 3.2.0 / adapter-auto 8.0.1 with its supported Svelte 5.57.1 peer floor; it has separate build, browser and production SSR checks.
 
 The latest-peer check deliberately changes only the app manifest and lockfile
 inside the verified disposable snapshot. It resolves the registry version

@@ -8,7 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { checkEnvironment } from "./local-quality.mjs";
 import { runOwned, processTable } from "./owned-process.mjs";
 
-for (const app of ["e2e-app", "e2e-floor"]) {
+for (const app of ["e2e-app", "e2e-floor", "e2e-kit2-floor"]) {
   const cwd = resolve("apps", app);
   const require = createRequire(resolve(cwd, "package.json"));
   const vite = resolve(dirname(require.resolve("vite/package.json")), "bin/vite.js");

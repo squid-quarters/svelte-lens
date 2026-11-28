@@ -60,7 +60,29 @@ and latest-Svelte compatibility; it never accepts a local receipt as a pass.
 Pull-request runs may cancel older runs, while main pushes keep distinct runs.
 
 The gate and validation workflows have no deployment or publishing step.
-The existing Version, Release and post-publish smoke workflows are unchanged:
-a separate approved release remains necessary. Installing or passing this gate
+The local gate runs independently of Version, Release and post-publish smoke.
+Publication still requires a separate approved release. Installing or passing this gate
 does not authorize a changeset, version bump, npm publication or deployment.
 No hooks are installed into another owner’s checkout by this change.
+
+## Installed release and recovery checks
+
+After building the exact candidate, run `pnpm release:verify`. It packs the
+candidate, validates the pinned published recovery package, then installs
+the previous version, candidate and previous version in a disposable consumer.
+Each phase checks the installed archive integrity, API exports, CLI and MCP.
+The recovery package version and registry integrity live in
+`.release-recovery.json`. Advance them after verifying the next published
+baseline through the consumer path.
+
+The release workflow verifies the candidate receipt against the tarball and
+the checkout before publishing that tarball. After publication, the existing
+smoke checks the exact version from npm. For consumer recovery, reinstall
+the known-good version explicitly in a copy of the affected project before
+updating the original project lockfile. Package installation preserves source
+files. Back up any application files before reverting separately made edits.
+
+The publish workflow uses an exact npm CLI pin. Review registry metadata and
+repeat candidate and recovery checks before updating it. The maintainer
+confirms the npm trusted publisher is bound to the repository, release
+workflow and GitHub environment before approving publication.

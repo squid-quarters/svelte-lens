@@ -1,3 +1,6 @@
+import adapter from "@sveltejs/adapter-auto";
+import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
+import { fileURLToPath as pathFromUrl } from "node:url";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { realpathSync } from "node:fs";
@@ -5,12 +8,21 @@ import { fileURLToPath } from "node:url";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig } from "vite";
 const require = createRequire(import.meta.url);
-const floor = require("../../packages/svelte-lens/package.json").devDependencies.svelte;
+const floor = require("./package.json").devDependencies.svelte;
 assert.equal(require("svelte/package.json").version, floor);
 const client = realpathSync(require.resolve("svelte/internal/client"));
 export default defineConfig({
   plugins: [
-    sveltekit(),
+    sveltekit({
+      adapter: adapter(),
+      preprocess: vitePreprocess(),
+      compilerOptions: { runes: true },
+      files: {
+        routes: "src/routes",
+        appTemplate: "src/app.html",
+        assets: pathFromUrl(new URL("../e2e-app/static", import.meta.url)),
+      },
+    }),
     {
       name: "verify-consumer-svelte-floor",
       async buildStart() {
@@ -33,6 +45,7 @@ export default defineConfig({
       },
     },
   ],
+  resolve: { dedupe: ["svelte"] },
   // Keep the asserted consumer runtime as source modules instead of a
   // not-yet-created optimized-dependency URL during dev startup.
   optimizeDeps: { exclude: ["svelte"] },

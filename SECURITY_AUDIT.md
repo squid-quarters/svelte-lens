@@ -775,3 +775,27 @@ these packages are development/build fixtures, not the shipped Lens runtime.
 The four Semgrep rules remain a bounded source-pattern check; passing them does
 not resolve dependency advisories. No audit suppressions, scanner exclusions,
 credential changes or repository-security changes were introduced.
+
+## W33 compatibility reassessment — 2026-11-29
+
+The raw registry result is now **four** findings, all in the private legacy
+`apps/e2e-kit2-floor` fixture's Kit 2.70.4: one high
+(GHSA-3r8g-jcqq-3p5j), one moderate (GHSA-6cf5-gc4q-fm3x), and the two low Kit
+findings described above. There are no audit suppressions. The two newer
+findings require experimental remote functions; that feature is explicitly
+`false` in this fixture. The compatibility contract test rejects both enabling
+it and adding a `.remote.*` module to the fixture or shared application source.
+It therefore has neither remote-function form parsing nor private query.batch
+handlers to exercise. This reachability disposition is specific to the committed
+loopback test fixture; it does not declare upstream Kit 2 generally safe.
+
+The two low findings retain their real browser regressions: malicious prerender
+cache headers remain data, and enhanced form results at leading-double-slash
+paths stay on origin while ordinary redirects work. Kit 2 / Svelte 5.56.3
+coverage is preserved as a separate fixture. The `e2e-floor` fixture moves to
+Kit 3.2.0 and adapter-auto 8.0.1 together, migrates configuration to the Vite
+plugin, and uses Kit 3's supported Svelte 5.57.1 / TypeScript 6 peer floors.
+Both fixtures run builds, checks, the shared browser battery and production SSR
+checks in CI and the staged commit gate. Upgrading only the old Kit pin would
+have removed the earlier consumer support evidence; upgrading only its adapter
+would have produced an unsupported peer graph.

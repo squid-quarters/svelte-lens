@@ -6,6 +6,7 @@ export default {
   preprocess: vitePreprocess(),
   compilerOptions: { runes: true },
   kit: {
+    experimental: { remoteFunctions: false },
     adapter: adapter(),
     files: {
       routes: "src/routes",

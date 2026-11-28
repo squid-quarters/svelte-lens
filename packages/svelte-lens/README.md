@@ -4,6 +4,8 @@ Hover any UI element in your browser, copy its source context for AI agents. Bui
 
 ## Install
 
+The CLI and MCP server require Node.js 22.12.0 or later.
+
 ```bash
 npm install @gear-null/svelte-lens
 ```

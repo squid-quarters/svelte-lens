@@ -33,3 +33,11 @@ Docs-only, test-only, or CI-only changes don't need a changeset.
 ## Notes for reviewer
 
 <!-- Anything reviewers should pay special attention to -->
+
+## Final-head review and verification
+
+Record the reviewed head, independent reviewers and finding dispositions.
+Include check commands and results, functional evidence and any skipped checks.
+Record what merging triggers and any separate release approval.
+
+Follow the [adopted common review and integration rules](https://github.com/squid-quarters/.github/blob/9efdabfe3ffe356c9bd82f7f8ef0a71ef0531b7b/REVIEW.md).

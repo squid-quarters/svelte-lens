@@ -18,33 +18,33 @@ concurrency:
 permissions: {}
 
 jobs:
-  release:
-    name: Publish to npm
+  verify:
+    name: Build and verify the installed release candidate
     runs-on: ubuntu-latest
-    # The environment only accepts release tags and main (for manual runs).
-    # Once the npm trusted publisher is bound to it (#62, step 3), a run
-    # without it, e.g. from an older release.yml, can't publish.
-    environment: npm-publish
     permissions:
-      id-token: write # for npm OIDC trusted publishing + provenance
-      contents: read # checkout only — GitHub Release already exists
+      contents: read
     outputs:
-      published_version: ${{ steps.resolve.outputs.version }}
+      version: ${{ steps.resolve.outputs.version }}
+      source_commit: ${{ steps.source.outputs.commit }}
+      artifact_id: ${{ steps.candidate.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # Defence in depth only: a release runs the release.yml of its tagged
       # commit, so a release of an older commit skips this check. Publishing
       # is actually restricted by repo settings (environment / tag rules).
       - name: Verify the commit is on main
+        id: source
         run: |
           set -euo pipefail
           if ! git merge-base --is-ancestor HEAD origin/main; then
             echo "::error::$(git rev-parse HEAD) is not on main; refusing to publish."
             exit 1
           fi
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # pin@v6.1.1
 
@@ -52,12 +52,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          registry-url: "https://registry.npmjs.org"
 
       # Tokenless OIDC trusted publishing requires npm CLI >= 11.5.1;
       # Node 22 bundles npm 10.x. The npm-side Trusted Publisher must be
       # configured for this repo+workflow at npmjs.com (package settings).
-      - run: npm install -g npm@^11.5.1
+      - run: npm install -g npm@11.21.3 --ignore-scripts
 
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -99,6 +98,48 @@ jobs:
           fi
           echo "Version verified: $VERSION"
 
+      - name: Verify installed candidate and recovery before publishing
+        run: pnpm release:verify
+
+      - name: Retain the verified tarball and receipt
+        id: candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: npm-release-candidate-${{ github.run_attempt }}
+          path: |
+            .local/release-candidate/candidate.tgz
+            .local/release-candidate/verification.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+
+  release:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    # The environment accepts release tags and main for manual runs.
+    environment: npm-publish
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+        with:
+          ref: ${{ needs.verify.outputs.source_commit }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # pin@v7.1.0
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm install -g npm@11.21.3 --ignore-scripts
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          path: .local/release-candidate
+
       - name: Publish to npm with provenance
         env:
           # Release events publish via OIDC trusted publishing; the
@@ -106,15 +147,16 @@ jobs:
           # publishes (workflow_dispatch). The variable must still exist
           # (empty) so setup-node's .npmrc env substitution succeeds.
           NODE_AUTH_TOKEN: ${{ github.event_name == 'workflow_dispatch' && secrets.NPM_TOKEN || '' }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
           set -euo pipefail
-          cd packages/svelte-lens
-          npm publish --provenance --no-git-checks
-          echo "Published @gear-null/svelte-lens@$(node -p "require('./package.json').version")"
+          node .github/scripts/release-candidate.mjs --assert-verified
+          npm publish ./.local/release-candidate/candidate.tgz --ignore-scripts --access public --provenance --no-git-checks
+          echo "Published @gear-null/svelte-lens@$VERSION"
 
       - name: Summarize release
         env:
-          VERSION: ${{ steps.resolve.outputs.version }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
           {
             echo "## Published @gear-null/svelte-lens@$VERSION"

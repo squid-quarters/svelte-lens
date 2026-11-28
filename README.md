@@ -25,6 +25,8 @@ The copied context includes:
 
 ## Install
 
+The CLI and MCP server require Node.js 22.12.0 or later.
+
 ```bash
 npm install @gear-null/svelte-lens
 ```
